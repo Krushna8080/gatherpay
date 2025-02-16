@@ -22,21 +22,36 @@ service cloud.firestore {
     match /groups/{groupId} {
       allow read: if request.auth != null;
       
-      // Allow group creation
+      // Allow group creation with location validation
       allow create: if request.auth != null && 
         request.resource.data.createdBy == request.auth.uid &&
         request.resource.data.status == 'open' &&
         request.resource.data.members is map &&
-        request.resource.data.createdAt is timestamp;
+        request.resource.data.createdAt is timestamp &&
+        request.resource.data.location is map &&
+        request.resource.data.location.latitude is number &&
+        request.resource.data.location.longitude is number &&
+        request.resource.data.location.latitude >= -90 &&
+        request.resource.data.location.latitude <= 90 &&
+        request.resource.data.location.longitude >= -180 &&
+        request.resource.data.location.longitude <= 180;
       
-      // Allow group updates
+      // Allow group updates with location validation
       allow update: if request.auth != null && (
         // Group leader can update all fields
-        resource.data.createdBy == request.auth.uid ||
-        // Members can update specific fields
+        (resource.data.createdBy == request.auth.uid &&
+         (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['location']) ||
+          (request.resource.data.location is map &&
+           request.resource.data.location.latitude is number &&
+           request.resource.data.location.longitude is number &&
+           request.resource.data.location.latitude >= -90 &&
+           request.resource.data.location.latitude <= 90 &&
+           request.resource.data.location.longitude >= -180 &&
+           request.resource.data.location.longitude <= 180))) ||
+        // Members can update specific fields except location and core fields
         (resource.data.members[request.auth.uid] == true && 
          !request.resource.data.diff(resource.data).affectedKeys()
-           .hasAny(['createdBy', 'createdAt','status']))
+           .hasAny(['createdBy', 'createdAt', 'status', 'location']))
       );
       
       // Allow group deletion by creator

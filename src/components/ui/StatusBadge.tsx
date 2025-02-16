@@ -3,25 +3,45 @@ import { View, StyleSheet } from 'react-native';
 import { Text } from 'react-native-paper';
 import { colors, spacing } from '../../theme';
 
+type GroupStatus = 'open' | 'ordering' | 'ordered' | 'completed' | 'cancelled';
+
 interface StatusBadgeProps {
-  status: 'success' | 'warning' | 'error' | 'info';
-  text: string;
+  status: GroupStatus;
   size?: 'small' | 'medium' | 'large';
 }
 
-export function StatusBadge({ status, text, size = 'medium' }: StatusBadgeProps) {
+export function StatusBadge({ status, size = 'medium' }: StatusBadgeProps) {
   const getStatusColor = () => {
     switch (status) {
-      case 'success':
-        return colors.success || '#4CAF50';
-      case 'warning':
-        return colors.notification;
-      case 'error':
-        return colors.error;
-      case 'info':
+      case 'open':
+        return colors.success;
+      case 'ordering':
         return colors.primary;
+      case 'ordered':
+        return colors.secondary;
+      case 'completed':
+        return colors.success;
+      case 'cancelled':
+        return colors.error;
       default:
         return colors.disabled;
+    }
+  };
+
+  const getStatusText = () => {
+    switch (status) {
+      case 'open':
+        return 'Open to Join';
+      case 'ordering':
+        return 'Ordering';
+      case 'ordered':
+        return 'Order Placed';
+      case 'completed':
+        return 'Completed';
+      case 'cancelled':
+        return 'Cancelled';
+      default:
+        return status;
     }
   };
 
@@ -72,7 +92,7 @@ export function StatusBadge({ status, text, size = 'medium' }: StatusBadgeProps)
           },
         ]}
       >
-        {text}
+        {getStatusText()}
       </Text>
     </View>
   );

@@ -1,19 +1,24 @@
 import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, ScrollView, Alert } from 'react-native';
-import { TextInput, Button, Text, ActivityIndicator } from 'react-native-paper';
+import { TextInput, Button, Text, ActivityIndicator, IconButton } from 'react-native-paper';
 import { useAuth } from '../../contexts/AuthContext';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { MainStackParamList } from '../../navigation/MainNavigator';
-import { colors, spacing } from '../../theme';
+import { colors, spacing, elevation } from '../../theme';
 import * as Location from 'expo-location';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../config/firebase';
+import { LinearGradient } from 'expo-linear-gradient';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 type CreateGroupScreenProps = {
   navigation: NativeStackNavigationProp<MainStackParamList, 'CreateGroup'>;
 };
 
+type Step = 'name' | 'details' | 'amount' | 'location';
+
 export default function CreateGroupScreen({ navigation }: CreateGroupScreenProps) {
+  const [currentStep, setCurrentStep] = useState<Step>('name');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [targetAmount, setTargetAmount] = useState('');
@@ -71,12 +76,10 @@ export default function CreateGroupScreen({ navigation }: CreateGroupScreenProps
     try {
       setLoading(true);
 
-      // Create initial members map with creator
       const membersMap = {
         [user.uid]: true
       };
 
-      // Create group in Firestore
       const groupRef = await addDoc(collection(db, 'groups'), {
         name,
         description,
@@ -93,7 +96,6 @@ export default function CreateGroupScreen({ navigation }: CreateGroupScreenProps
         lastUpdated: serverTimestamp(),
       });
 
-      // Navigate to group details
       navigation.replace('GroupDetails', { groupId: groupRef.id });
     } catch (error: any) {
       console.error('Error creating group:', error);
@@ -106,93 +108,188 @@ export default function CreateGroupScreen({ navigation }: CreateGroupScreenProps
     }
   };
 
-  if (locationError) {
-    return (
-      <View style={styles.centered}>
-        <Text style={styles.errorText}>{locationError}</Text>
-        <Button 
-          mode="contained" 
-          onPress={checkLocationPermission}
-          style={styles.retryButton}
-        >
-          Grant Location Permission
-        </Button>
-      </View>
-    );
-  }
+  const getStepProgress = () => {
+    const steps: Step[] = ['name', 'details', 'amount', 'location'];
+    return (steps.indexOf(currentStep) + 1) / steps.length * 100;
+  };
 
-  if (!location) {
-    return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Getting your location...</Text>
-      </View>
-    );
-  }
+  const canProceed = () => {
+    switch (currentStep) {
+      case 'name':
+        return name.length >= 3;
+      case 'details':
+        return description.length >= 10;
+      case 'amount':
+        const amount = parseFloat(targetAmount);
+        return !isNaN(amount) && amount > 0;
+      case 'location':
+        return !!location;
+      default:
+        return false;
+    }
+  };
+
+  const handleNext = () => {
+    switch (currentStep) {
+      case 'name':
+        setCurrentStep('details');
+        break;
+      case 'details':
+        setCurrentStep('amount');
+        break;
+      case 'amount':
+        setCurrentStep('location');
+        break;
+      case 'location':
+        handleCreateGroup();
+        break;
+    }
+  };
+
+  const handleBack = () => {
+    switch (currentStep) {
+      case 'details':
+        setCurrentStep('name');
+        break;
+      case 'amount':
+        setCurrentStep('details');
+        break;
+      case 'location':
+        setCurrentStep('amount');
+        break;
+      default:
+        navigation.goBack();
+    }
+  };
+
+  const renderStep = () => {
+    switch (currentStep) {
+      case 'name':
+        return (
+          <View style={styles.stepContainer}>
+            <MaterialCommunityIcons name="account-group" size={48} color={colors.primary} style={styles.stepIcon} />
+            <Text variant="headlineMedium" style={styles.stepTitle}>Name Your Group</Text>
+            <Text variant="bodyMedium" style={styles.stepDescription}>
+              Choose a memorable name for your group order
+            </Text>
+            <TextInput
+              mode="outlined"
+              label="Group Name"
+              value={name}
+              onChangeText={setName}
+              style={styles.input}
+              maxLength={50}
+            />
+          </View>
+        );
+
+      case 'details':
+        return (
+          <View style={styles.stepContainer}>
+            <MaterialCommunityIcons name="text-box" size={48} color={colors.primary} style={styles.stepIcon} />
+            <Text variant="headlineMedium" style={styles.stepTitle}>Add Description</Text>
+            <Text variant="bodyMedium" style={styles.stepDescription}>
+              Describe what you're ordering and any special instructions
+            </Text>
+            <TextInput
+              mode="outlined"
+              label="Description"
+              value={description}
+              onChangeText={setDescription}
+              multiline
+              numberOfLines={3}
+              style={styles.input}
+              maxLength={200}
+            />
+          </View>
+        );
+
+      case 'amount':
+        return (
+          <View style={styles.stepContainer}>
+            <MaterialCommunityIcons name="currency-inr" size={48} color={colors.primary} style={styles.stepIcon} />
+            <Text variant="headlineMedium" style={styles.stepTitle}>Set Target Amount</Text>
+            <Text variant="bodyMedium" style={styles.stepDescription}>
+              Set the expected total amount for this group order
+            </Text>
+            <TextInput
+              mode="outlined"
+              label="Target Amount (₹)"
+              value={targetAmount}
+              onChangeText={setTargetAmount}
+              keyboardType="number-pad"
+              style={styles.input}
+              left={<TextInput.Affix text="₹" />}
+            />
+          </View>
+        );
+
+      case 'location':
+        return (
+          <View style={styles.stepContainer}>
+            <MaterialCommunityIcons name="map-marker" size={48} color={colors.primary} style={styles.stepIcon} />
+            <Text variant="headlineMedium" style={styles.stepTitle}>Confirm Location</Text>
+            <Text variant="bodyMedium" style={styles.stepDescription}>
+              Your group will be visible to users within 5km of your current location
+            </Text>
+            {locationError ? (
+              <>
+                <Text style={styles.errorText}>{locationError}</Text>
+                <Button 
+                  mode="contained" 
+                  onPress={checkLocationPermission}
+                  style={styles.retryButton}
+                >
+                  Grant Location Permission
+                </Button>
+              </>
+            ) : !location ? (
+              <ActivityIndicator size="large" color={colors.primary} />
+            ) : (
+              <View style={styles.locationConfirmed}>
+                <MaterialCommunityIcons name="check-circle" size={64} color={colors.success} />
+                <Text style={styles.locationText}>Location Confirmed</Text>
+              </View>
+            )}
+          </View>
+        );
+    }
+  };
 
   return (
-    <ScrollView style={styles.container}>
-      <View style={styles.content}>
-        <Text variant="headlineMedium" style={styles.title}>
-          Create New Group
-        </Text>
-
-        <View style={styles.form}>
-          <TextInput
-            mode="outlined"
-            label="Group Name"
-            value={name}
-            onChangeText={setName}
-            style={styles.input}
-            maxLength={50}
+    <View style={styles.container}>
+      <LinearGradient
+        colors={[colors.primary + '20', colors.background]}
+        style={styles.gradient}
+      >
+        <View style={styles.header}>
+          <IconButton
+            icon="arrow-left"
+            size={24}
+            onPress={handleBack}
           />
+          <View style={styles.progressContainer}>
+            <View style={[styles.progressBar, { width: `${getStepProgress()}%` }]} />
+          </View>
+        </View>
 
-          <TextInput
-            mode="outlined"
-            label="Description"
-            value={description}
-            onChangeText={setDescription}
-            multiline
-            numberOfLines={3}
-            style={styles.input}
-            maxLength={200}
-          />
+        <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent}>
+          {renderStep()}
+        </ScrollView>
 
-          <TextInput
-            mode="outlined"
-            label="Target Amount (₹)"
-            value={targetAmount}
-            onChangeText={setTargetAmount}
-            keyboardType="number-pad"
-            style={styles.input}
-            left={<TextInput.Affix text="₹" />}
-          />
-
-          <Text variant="bodySmall" style={styles.locationText}>
-            Your group will be visible to users within 5km of your current location
-          </Text>
-
+        <View style={styles.footer}>
           <Button
             mode="contained"
-            onPress={handleCreateGroup}
+            onPress={handleNext}
             loading={loading}
-            disabled={loading || !name || !description || !targetAmount}
+            disabled={loading || !canProceed()}
             style={styles.button}
           >
-            Create Group
-          </Button>
-
-          <Button
-            mode="text"
-            onPress={() => navigation.goBack()}
-            style={styles.cancelButton}
-            disabled={loading}
-          >
-            Cancel
+            {currentStep === 'location' ? 'Create Group' : 'Next'}
           </Button>
         </View>
-      </View>
-    </ScrollView>
+      </LinearGradient>
+    </View>
   );
 }
 
@@ -201,46 +298,74 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
-  content: {
-    padding: spacing.lg,
+  gradient: {
+    flex: 1,
   },
-  title: {
-    textAlign: 'center',
-    marginBottom: spacing.xl,
-    color: colors.primary,
+  header: {
+    padding: spacing.md,
   },
-  form: {
-    width: '100%',
-  },
-  input: {
-    marginBottom: spacing.md,
-  },
-  button: {
-    marginTop: spacing.md,
-  },
-  cancelButton: {
+  progressContainer: {
+    height: 4,
+    backgroundColor: colors.surfaceVariant,
+    borderRadius: 2,
     marginTop: spacing.sm,
   },
-  centered: {
+  progressBar: {
+    height: '100%',
+    backgroundColor: colors.primary,
+    borderRadius: 2,
+  },
+  content: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+  },
+  scrollContent: {
     padding: spacing.lg,
   },
+  stepContainer: {
+    alignItems: 'center',
+    paddingVertical: spacing.xl,
+  },
+  stepIcon: {
+    marginBottom: spacing.md,
+  },
+  stepTitle: {
+    color: colors.primary,
+    marginBottom: spacing.sm,
+    textAlign: 'center',
+  },
+  stepDescription: {
+    color: colors.textSecondary,
+    textAlign: 'center',
+    marginBottom: spacing.xl,
+  },
+  input: {
+    width: '100%',
+    marginBottom: spacing.md,
+  },
+  footer: {
+    padding: spacing.lg,
+    backgroundColor: colors.background,
+    ...elevation.small,
+  },
+  button: {
+    width: '100%',
+  },
   errorText: {
+    color: colors.error,
     textAlign: 'center',
     marginBottom: spacing.md,
-    color: colors.error,
-  },
-  loadingText: {
-    marginTop: spacing.md,
   },
   retryButton: {
     marginTop: spacing.md,
   },
+  locationConfirmed: {
+    alignItems: 'center',
+    marginTop: spacing.xl,
+  },
   locationText: {
-    textAlign: 'center',
-    color: colors.disabled,
-    marginBottom: spacing.md,
+    color: colors.success,
+    marginTop: spacing.sm,
+    fontSize: 16,
+    fontWeight: '600',
   },
 }); 

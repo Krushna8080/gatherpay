@@ -1,18 +1,23 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, ScrollView, Alert } from 'react-native';
-import { Text, Button, Card, Divider, Portal, Modal, List, ActivityIndicator } from 'react-native-paper';
+import { View, StyleSheet, ScrollView, Alert, TouchableOpacity, Animated } from 'react-native';
+import { Text, Button, Divider, Portal, Modal, List, ActivityIndicator, IconButton } from 'react-native-paper';
 import { useAuth } from '../../contexts/AuthContext';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { MainStackParamList } from '../../navigation/MainNavigator';
-import { colors, spacing } from '../../theme';
+import { colors, spacing, elevation } from '../../theme';
 import { doc, getDoc, updateDoc, collection, addDoc, onSnapshot, deleteDoc, arrayUnion, arrayRemove, serverTimestamp, query, orderBy, getDocs, writeBatch } from 'firebase/firestore';
 import { db } from '../../config/firebase';
-import { GiftedChat, IMessage } from 'react-native-gifted-chat';
+import { GiftedChat, IMessage, Bubble, Send } from 'react-native-gifted-chat';
 import { useWallet } from '../../contexts/WalletContext';
 import * as ImagePicker from 'expo-image-picker';
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import * as Location from 'expo-location';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Card } from '../../components/ui/Card';
+import { StatusBadge } from '../../components/ui/StatusBadge';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { AnimatedNumber } from '../../components/ui/AnimatedNumber';
 
 const MAX_GROUP_MEMBERS = 10;
 const LEADER_REWARD_PERCENTAGE = 5; // 5% of order amount as reward
@@ -85,6 +90,10 @@ export default function GroupDetailsScreen({
   const { groupId } = route.params;
   const { balance, deductMoney, addRewardCoins } = useWallet();
   const [userLocation, setUserLocation] = useState<Location.LocationObject | null>(null);
+  const [showChat, setShowChat] = useState(true);
+  const [contentHeight] = useState(new Animated.Value(1));
+  const [showActions, setShowActions] = useState(true);
+  const [actionsHeight] = useState(new Animated.Value(1));
 
   useEffect(() => {
     const unsubscribe = subscribeToGroup();
@@ -496,6 +505,106 @@ export default function GroupDetailsScreen({
     }
   };
 
+  const renderBubble = (props: any) => {
+    return (
+      <Bubble
+        {...props}
+        wrapperStyle={{
+          right: {
+            backgroundColor: colors.primary,
+          },
+          left: {
+            backgroundColor: colors.surfaceVariant,
+          },
+        }}
+        textStyle={{
+          right: {
+            color: colors.background,
+          },
+          left: {
+            color: colors.text,
+          },
+        }}
+      />
+    );
+  };
+
+  const renderSend = (props: any) => {
+    return (
+      <Send {...props}>
+        <View style={styles.sendButton}>
+          <MaterialCommunityIcons name="send" size={24} color={colors.primary} />
+        </View>
+      </Send>
+    );
+  };
+
+  const renderOrderModal = () => {
+    if (!group) return null;
+
+    return (
+      <Modal
+        visible={showOrderModal}
+        onDismiss={() => setShowOrderModal(false)}
+        contentContainerStyle={styles.modal}
+      >
+        <View style={styles.modalHeader}>
+          <Text variant="headlineSmall" style={styles.modalTitle}>
+            Group Order Details
+          </Text>
+          <TouchableOpacity 
+            onPress={() => setShowOrderModal(false)}
+            style={styles.closeButton}
+          >
+            <MaterialCommunityIcons 
+              name="close" 
+              size={24} 
+              color={colors.text} 
+            />
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView style={styles.orderContent}>
+          {isLeader && group.status === 'ordering' && (
+            <View style={styles.uploadSection}>
+              <Text variant="titleMedium" style={styles.sectionTitle}>
+                Order Screenshot
+              </Text>
+              <Button
+                mode="outlined"
+                onPress={handleUploadScreenshot}
+                icon="camera"
+                style={styles.uploadButton}
+              >
+                Upload Screenshot
+              </Button>
+            </View>
+          )}
+        </ScrollView>
+      </Modal>
+    );
+  };
+
+  const toggleSections = () => {
+    // Animate both sections
+    Animated.parallel([
+      Animated.timing(contentHeight, {
+        toValue: showChat ? 0 : 1,
+        duration: 300,
+        useNativeDriver: false,
+      }),
+      Animated.timing(actionsHeight, {
+        toValue: showActions ? 0 : 1,
+        duration: 300,
+        useNativeDriver: false,
+      })
+    ]).start();
+
+    // Toggle visibility states
+    setShowChat(!showChat);
+    setShowActions(!showActions);
+  };
+
   if (loading) {
     return (
       <View style={styles.centered}>
@@ -513,160 +622,164 @@ export default function GroupDetailsScreen({
     );
   }
 
-  const renderGroupStatus = () => {
-    switch (group.status) {
-      case 'open':
-        return <Text style={[styles.status, styles.statusOpen]}>Open</Text>;
-      case 'ordering':
-        return <Text style={[styles.status, styles.statusOrdering]}>Ordering</Text>;
-      case 'completed':
-        return <Text style={[styles.status, styles.statusCompleted]}>Completed</Text>;
-      case 'cancelled':
-        return <Text style={[styles.status, styles.statusCancelled]}>Cancelled</Text>;
-      default:
-        return null;
-    }
-  };
-
-  const renderOrderModal = () => (
-    <Modal
-      visible={showOrderModal}
-      onDismiss={() => setShowOrderModal(false)}
-      contentContainerStyle={styles.modal}
-    >
-      <Text variant="headlineSmall">Order Details</Text>
-      {isLeader ? (
-        <>
-          <Text variant="bodyMedium" style={styles.modalText}>
-            Please place the order on the delivery platform and upload the confirmation screenshot here.
-          </Text>
-          {screenshot ? (
-            <Card style={styles.screenshotCard}>
-              <Card.Cover source={{ uri: screenshot }} />
-            </Card>
-          ) : null}
-          <Button
-            mode="contained"
-            onPress={handleUploadScreenshot}
-            style={styles.modalButton}
-          >
-            {screenshot ? 'Change Screenshot' : 'Upload Screenshot'}
-          </Button>
-          {screenshot && (
-            <Button
-              mode="contained"
-              onPress={handleConfirmOrder}
-              style={styles.modalButton}
-            >
-              Confirm Order
-            </Button>
-          )}
-        </>
-      ) : (
-        <Text variant="bodyMedium" style={styles.modalText}>
-          Waiting for the group leader to place and confirm the order...
-        </Text>
-      )}
-      <Button
-        mode="outlined"
-        onPress={() => setShowOrderModal(false)}
-        style={styles.modalButton}
-      >
-        Close
-      </Button>
-    </Modal>
-  );
-
   return (
     <View style={styles.container}>
-      <ScrollView style={styles.detailsContainer}>
-        <Card style={styles.infoCard}>
-          <Card.Content>
-            <View style={styles.headerRow}>
-              <Text variant="headlineMedium">{group.name}</Text>
-              {renderGroupStatus()}
-            </View>
-            <Text variant="bodyLarge" style={styles.description}>
-              {group.description}
-            </Text>
-            <Divider style={styles.divider} />
-            <View style={styles.stats}>
-              <Text variant="bodyMedium">Members: {group.memberCount}/{MAX_GROUP_MEMBERS}</Text>
-              <Text variant="bodyMedium">Target: ₹{group.targetAmount}</Text>
-            </View>
-            <Button
-              mode="outlined"
-              onPress={() => setShowMembersModal(true)}
-              style={styles.membersButton}
-            >
-              View Members
-            </Button>
-          </Card.Content>
-        </Card>
-
-        {group.status === 'open' && !group.members[user!.uid] && (
-          <Button
-            mode="contained"
-            onPress={handleJoinGroup}
-            style={styles.actionButton}
-          >
-            Join Group
-          </Button>
-        )}
-
-        {group.members[user!.uid] && !isLeader && (
-          <Button
-            mode="outlined"
-            onPress={handleLeaveGroup}
-            style={styles.actionButton}
-            textColor={colors.error}
-          >
-            Leave Group
-          </Button>
-        )}
-
-        {isLeader && group.status === 'open' && (
-          <View style={styles.leaderActions}>
-            <Button
-              mode="contained"
-              onPress={handleStartOrder}
-              style={styles.actionButton}
-            >
-              Start Order
-            </Button>
-            <Button
-              mode="outlined"
-              onPress={handleCloseGroup}
-              style={styles.actionButton}
-              textColor={colors.warning}
-            >
-              Close Group
-            </Button>
+      <View style={styles.header}>
+        <LinearGradient
+          colors={[colors.primary, colors.primaryDark]}
+          style={styles.headerGradient}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+        >
+          <View style={styles.headerPattern}>
+            <View style={[styles.patternCircle, styles.circle1]} />
+            <View style={[styles.patternCircle, styles.circle2]} />
+            <View style={[styles.patternCircle, styles.circle3]} />
           </View>
-        )}
+          <View style={styles.headerContent}>
+            <Text variant="headlineMedium" style={styles.groupName}>
+              {group.name}
+            </Text>
+            <View style={styles.headerStats}>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>
+                  <AnimatedNumber 
+                    value={group.memberCount} 
+                    formatter={(val) => `${val}/${MAX_GROUP_MEMBERS}`}
+                  />
+                </Text>
+                <Text style={styles.statLabel}>Members</Text>
+              </View>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>
+                  <AnimatedNumber 
+                    value={group.targetAmount} 
+                    formatter={(val) => `₹${val}`}
+                  />
+                </Text>
+                <Text style={styles.statLabel}>Target</Text>
+              </View>
+            </View>
+          </View>
+        </LinearGradient>
+      </View>
 
-        {group.members[user!.uid] && (
-          <Button
-            mode="outlined"
-            onPress={handleShareLocation}
-            style={styles.actionButton}
-            icon="map-marker"
+      <View style={styles.content}>
+        <Animated.View 
+          style={[
+            styles.actionsContainer,
+            {
+              maxHeight: actionsHeight.interpolate({
+                inputRange: [0, 1],
+                outputRange: ['0%', '50%']
+              })
+            }
+          ]}
+        >
+          {showActions && (
+            <ScrollView style={styles.scrollContent}>
+              <Card variant="secondary" style={styles.infoCard}>
+                <View style={styles.cardHeader}>
+                  <StatusBadge status={group.status} />
+                  {isLeader && (
+                    <MaterialCommunityIcons 
+                      name="crown" 
+                      size={24} 
+                      color={colors.primary} 
+                    />
+                  )}
+                </View>
+                <Text style={styles.description}>{group.description}</Text>
+                <Divider style={styles.divider} />
+                <View style={styles.actionButtons}>
+                  {group.status === 'open' && !group.members[user!.uid] && (
+                    <Button
+                      mode="contained"
+                      onPress={handleJoinGroup}
+                      style={styles.actionButton}
+                    >
+                      Join Group
+                    </Button>
+                  )}
+                  {group.members[user!.uid] && !isLeader && (
+                    <Button
+                      mode="outlined"
+                      onPress={handleLeaveGroup}
+                      style={styles.actionButton}
+                      textColor={colors.error}
+                    >
+                      Leave Group
+                    </Button>
+                  )}
+                  {isLeader && group.status === 'open' && (
+                    <View style={styles.leaderActions}>
+                      <Button
+                        mode="contained"
+                        onPress={handleStartOrder}
+                        style={[styles.actionButton, styles.startOrderButton]}
+                      >
+                        Start Order
+                      </Button>
+                      <Button
+                        mode="outlined"
+                        onPress={handleCloseGroup}
+                        style={[styles.actionButton, styles.closeGroupButton]}
+                        textColor={colors.warning}
+                      >
+                        Close Group
+                      </Button>
+                    </View>
+                  )}
+                </View>
+              </Card>
+            </ScrollView>
+          )}
+        </Animated.View>
+
+        <View style={styles.toggleContainer}>
+          <Button 
+            mode="contained"
+            onPress={toggleSections}
+            icon={showChat ? "message-text" : "format-list-bulleted"}
+            style={styles.toggleButton}
           >
-            Share Location
+            {showChat ? "Show Actions" : "Show Chat"}
           </Button>
-        )}
-      </ScrollView>
+        </View>
 
-      <View style={styles.chatContainer}>
-        <GiftedChat
-          messages={messages}
-          onSend={onSend}
-          user={{
-            _id: user!.uid,
-            name: user!.phoneNumber || 'Unknown User',
-          }}
-          renderAvatar={null}
-        />
+        <Animated.View 
+          style={[
+            styles.chatContainer,
+            {
+              maxHeight: contentHeight.interpolate({
+                inputRange: [0, 1],
+                outputRange: ['0%', '50%']
+              })
+            }
+          ]}
+        >
+          {showChat && (
+            <GiftedChat
+              messages={messages}
+              onSend={onSend}
+              user={{
+                _id: user!.uid,
+                name: user!.phoneNumber || 'Unknown User',
+              }}
+              renderBubble={renderBubble}
+              renderSend={renderSend}
+              renderAvatar={null}
+              alwaysShowSend
+              scrollToBottom
+              infiniteScroll
+              minInputToolbarHeight={60}
+              listViewProps={{
+                style: styles.chatList,
+                contentContainerStyle: styles.chatListContent,
+              }}
+            />
+          )}
+        </Animated.View>
       </View>
 
       <Portal>
@@ -676,32 +789,50 @@ export default function GroupDetailsScreen({
           onDismiss={() => setShowMembersModal(false)}
           contentContainerStyle={styles.modal}
         >
-          <Text variant="headlineSmall" style={styles.modalTitle}>Group Members</Text>
+          <View style={styles.modalHeader}>
+            <Text variant="headlineSmall" style={styles.modalTitle}>
+              Group Members
+            </Text>
+            <TouchableOpacity 
+              onPress={() => setShowMembersModal(false)}
+              style={styles.closeButton}
+            >
+              <MaterialCommunityIcons 
+                name="close" 
+                size={24} 
+                color={colors.text} 
+              />
+            </TouchableOpacity>
+          </View>
           {memberLoading ? (
             <ActivityIndicator size="small" color={colors.primary} />
           ) : (
-            <ScrollView>
+            <ScrollView style={styles.membersList}>
               {members.map((member) => (
                 <List.Item
                   key={member.id}
                   title={member.name || 'Unnamed User'}
                   description={member.phoneNumber}
-                  left={props => <List.Icon {...props} icon="account" />}
+                  left={props => (
+                    <View style={styles.memberListAvatar}>
+                      <Text style={styles.avatarText}>
+                        {member.name?.[0] || member.phoneNumber?.[0] || '?'}
+                      </Text>
+                    </View>
+                  )}
                   right={props => 
                     member.id === group.createdBy && 
-                    <List.Icon {...props} icon="crown" color={colors.primary} />
+                    <MaterialCommunityIcons 
+                      name="crown" 
+                      size={24} 
+                      color={colors.primary} 
+                    />
                   }
+                  style={styles.memberListItem}
                 />
               ))}
             </ScrollView>
           )}
-          <Button
-            mode="outlined"
-            onPress={() => setShowMembersModal(false)}
-            style={styles.modalButton}
-          >
-            Close
-          </Button>
         </Modal>
       </Portal>
     </View>
@@ -713,6 +844,181 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
+  header: {
+    height: 200,
+    overflow: 'hidden',
+  },
+  headerGradient: {
+    flex: 1,
+    position: 'relative',
+  },
+  headerPattern: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.1,
+  },
+  patternCircle: {
+    position: 'absolute',
+    backgroundColor: colors.background,
+    borderRadius: 9999,
+  },
+  circle1: {
+    width: 200,
+    height: 200,
+    top: -100,
+    right: -50,
+    opacity: 0.1,
+  },
+  circle2: {
+    width: 150,
+    height: 150,
+    top: 50,
+    right: 50,
+    opacity: 0.05,
+  },
+  circle3: {
+    width: 100,
+    height: 100,
+    top: -20,
+    left: 30,
+    opacity: 0.08,
+  },
+  headerContent: {
+    padding: spacing.lg,
+    paddingTop: spacing.xl,
+  },
+  groupName: {
+    color: colors.background,
+    fontWeight: 'bold',
+    marginBottom: spacing.md,
+  },
+  headerStats: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginTop: spacing.md,
+  },
+  statItem: {
+    alignItems: 'center',
+  },
+  statValue: {
+    color: colors.background,
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  statLabel: {
+    color: colors.background,
+    opacity: 0.8,
+    fontSize: 14,
+  },
+  content: {
+    flex: 1,
+    backgroundColor: colors.background,
+    marginTop: -24,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+  },
+  scrollContent: {
+    padding: spacing.lg,
+  },
+  infoCard: {
+    marginBottom: spacing.lg,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  description: {
+    fontSize: 16,
+    color: colors.text,
+    marginBottom: spacing.md,
+  },
+  divider: {
+    marginVertical: spacing.md,
+  },
+  actionButtons: {
+    gap: spacing.sm,
+  },
+  actionButton: {
+    marginVertical: spacing.xs,
+  },
+  membersCard: {
+    marginBottom: spacing.lg,
+  },
+  membersPreview: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: spacing.md,
+  },
+  memberAvatars: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  memberAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: colors.background,
+  },
+  moreAvatar: {
+    backgroundColor: colors.surfaceVariant,
+  },
+  avatarText: {
+    color: colors.background,
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  chatContainer: {
+    flex: 1,
+    borderTopWidth: 1,
+    borderTopColor: colors.surfaceVariant,
+    backgroundColor: colors.surface,
+  },
+  sendButton: {
+    marginRight: spacing.md,
+    marginBottom: spacing.md,
+  },
+  modal: {
+    backgroundColor: colors.surface,
+    margin: spacing.lg,
+    borderRadius: 16,
+    maxHeight: '80%',
+    ...elevation.medium,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: spacing.lg,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.surfaceVariant,
+  },
+  modalTitle: {
+    color: colors.text,
+    fontWeight: 'bold',
+  },
+  closeButton: {
+    padding: spacing.xs,
+  },
+  membersList: {
+    padding: spacing.md,
+  },
+  memberListItem: {
+    paddingVertical: spacing.sm,
+  },
+  memberListAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   centered: {
     flex: 1,
     justifyContent: 'center',
@@ -720,84 +1026,63 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     marginTop: spacing.md,
+    color: colors.text,
   },
-  detailsContainer: {
-    flex: 1,
+  orderContent: {
     padding: spacing.md,
   },
-  infoCard: {
-    marginBottom: spacing.md,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.sm,
-  },
-  status: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  statusOpen: {
-    backgroundColor: colors.primary + '20',
-    color: colors.primary,
-  },
-  statusOrdering: {
-    backgroundColor: colors.secondary + '20',
-    color: colors.secondary,
-  },
-  statusCompleted: {
-    backgroundColor: '#4CAF50' + '20',
-    color: '#4CAF50',
-  },
-  statusCancelled: {
-    backgroundColor: colors.error + '20',
-    color: colors.error,
-  },
-  description: {
-    marginTop: spacing.sm,
-  },
-  divider: {
-    marginVertical: spacing.md,
-  },
-  stats: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: spacing.sm,
-  },
-  membersButton: {
+  uploadSection: {
     marginTop: spacing.md,
   },
-  actionButton: {
-    marginVertical: spacing.md,
+  uploadButton: {
+    marginTop: spacing.sm,
+  },
+  sectionTitle: {
+    color: colors.text,
+    fontWeight: 'bold',
   },
   leaderActions: {
-    marginTop: spacing.sm,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: spacing.md,
   },
-  chatContainer: {
-    flex: 2,
+  startOrderButton: {
+    flex: 1,
+  },
+  closeGroupButton: {
+    flex: 1,
+  },
+  chatToggleContainer: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
     borderTopWidth: 1,
-    borderTopColor: colors.disabled,
-  },
-  modal: {
+    borderTopColor: colors.surfaceVariant,
     backgroundColor: colors.surface,
-    padding: spacing.lg,
-    margin: spacing.lg,
-    borderRadius: 8,
-    maxHeight: '80%',
   },
-  modalTitle: {
-    marginBottom: spacing.md,
+  toggleButton: {
+    borderRadius: 20,
   },
-  modalText: {
-    marginVertical: spacing.md,
+  chatList: {
+    backgroundColor: colors.background,
   },
-  modalButton: {
-    marginTop: spacing.md,
+  chatListContent: {
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.sm,
   },
-  screenshotCard: {
-    marginVertical: spacing.md,
+  actionsContainer: {
+    flex: 1,
+    backgroundColor: colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: colors.surfaceVariant,
+  },
+  toggleContainer: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.surfaceVariant,
+    backgroundColor: colors.surface,
+  },
+  toggleButton: {
+    borderRadius: 20,
   },
 }); 

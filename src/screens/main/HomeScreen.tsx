@@ -1,45 +1,38 @@
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, FlatList, Alert } from 'react-native';
-import { Text, FAB, Card, Button, IconButton, ActivityIndicator } from 'react-native-paper';
+import { View, StyleSheet, FlatList, Alert, ScrollView, RefreshControl, TouchableOpacity } from 'react-native';
+import { Text, FAB, IconButton, Divider, ActivityIndicator, Button } from 'react-native-paper';
 import { useAuth } from '../../contexts/AuthContext';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { MainStackParamList } from '../../navigation/MainNavigator';
-import { colors, spacing } from '../../theme';
+import { colors, spacing, elevation } from '../../theme';
 import * as Location from 'expo-location';
 import { collection, query, where, getDocs, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { useWallet } from '../../contexts/WalletContext';
+import { BalanceCard } from '../../components/ui/BalanceCard';
+import { Card } from '../../components/ui/Card';
+import { Group } from '../../types';
+import { StatusBadge } from '../../components/ui/StatusBadge';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
+import { CategoryButton } from '../../components/ui/CategoryButton';
+import { LinearGradient } from 'expo-linear-gradient';
 
 type HomeScreenProps = {
   navigation: NativeStackNavigationProp<MainStackParamList, 'Home'>;
 };
 
-interface Group {
-  id: string;
-  name: string;
-  description: string;
-  memberCount: number;
-  targetAmount: number;
-  status: 'open' | 'ordering' | 'ordered' | 'completed' | 'cancelled';
-  createdBy: string;
-  members: { [key: string]: boolean };
-  location: {
-    latitude: number;
-    longitude: number;
-    lastUpdated?: Date;
-  };
-  distance?: number; // Distance from user in meters
-}
-
 const MAX_DISTANCE = 5000; // 5km radius
 
 export default function HomeScreen({ navigation }: HomeScreenProps) {
-  const [groups, setGroups] = useState<Group[]>([]);
+  const [nearbyGroups, setNearbyGroups] = useState<Group[]>([]);
+  const [userGroups, setUserGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
   const [userLocation, setUserLocation] = useState<Location.LocationObject | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
   const { user } = useAuth();
-  const { balance } = useWallet();
+  const { balance, rewardCoins, refreshWallet } = useWallet();
+  const [refreshing, setRefreshing] = useState(false);
+  const [selectedSection, setSelectedSection] = useState<'nearby' | 'active'>('nearby');
 
   useEffect(() => {
     getUserLocation();
@@ -56,7 +49,9 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const nearbyGroups: Group[] = [];
+      const nearby: Group[] = [];
+      const owned: Group[] = [];
+      
       snapshot.forEach((doc) => {
         const groupData = { id: doc.id, ...doc.data() } as Group;
         
@@ -68,16 +63,24 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
           groupData.location.longitude
         );
 
-        // Only include groups within 5km
-        if (distance <= 5) {
-          groupData.distance = distance;
-          nearbyGroups.push(groupData);
+        groupData.distance = distance;
+
+        // Check if user is creator or member
+        if (groupData.createdBy === user.uid || groupData.members[user.uid]) {
+          owned.push(groupData);
+        } 
+        // Only include nearby groups that user is not part of
+        else if (distance <= MAX_DISTANCE) {
+          nearby.push(groupData);
         }
       });
 
       // Sort groups by distance
-      nearbyGroups.sort((a, b) => (a.distance || 0) - (b.distance || 0));
-      setGroups(nearbyGroups);
+      nearby.sort((a, b) => (a.distance || 0) - (b.distance || 0));
+      owned.sort((a, b) => (a.distance || 0) - (b.distance || 0));
+      
+      setNearbyGroups(nearby);
+      setUserGroups(owned);
       setLoading(false);
     });
 
@@ -127,26 +130,45 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
   };
 
   const renderGroupCard = ({ item }: { item: Group }) => (
-    <Card style={styles.card} onPress={() => navigation.navigate('GroupDetails', { groupId: item.id })}>
-      <Card.Content>
-        <Text variant="titleMedium">{item.name}</Text>
-        <Text variant="bodyMedium">{item.description}</Text>
-        <View style={styles.groupInfo}>
-          <View style={styles.groupStats}>
-            <Text variant="bodySmall">Members: {item.memberCount}</Text>
-            <Text variant="bodySmall">Target: ₹{item.targetAmount}</Text>
+    <TouchableOpacity 
+      onPress={() => navigation.navigate('GroupDetails', { groupId: item.id })}
+      style={styles.groupCard}
+    >
+      <Card variant="secondary" style={styles.card}>
+        <View style={styles.cardContent}>
+          <View style={styles.cardHeader}>
+            <Text style={styles.groupName}>{item.name}</Text>
+            <Text style={styles.memberCount}>{item.memberCount} members</Text>
           </View>
-          <Text variant="bodySmall" style={styles.distance}>
-            {formatDistance(item.distance)}
-          </Text>
+          
+          <View style={styles.cardDetails}>
+            <Text style={styles.description}>{item.description}</Text>
+            <View style={styles.amountContainer}>
+              <Text style={styles.amountLabel}>Target Amount:</Text>
+              <Text style={styles.amount}>₹{item.targetAmount}</Text>
+            </View>
+            {item.distance && (
+              <Text style={styles.distance}>{formatDistance(item.distance)} away</Text>
+            )}
+          </View>
+
+          <View style={styles.cardFooter}>
+            <StatusBadge status={item.status} />
+            <IconButton 
+              icon="chevron-right" 
+              size={24} 
+              iconColor={colors.primary}
+            />
+          </View>
         </View>
-      </Card.Content>
-      <Card.Actions>
-        <Button onPress={() => navigation.navigate('GroupDetails', { groupId: item.id })}>
-          View Details
-        </Button>
-      </Card.Actions>
-    </Card>
+      </Card>
+    </TouchableOpacity>
+  );
+
+  const renderSectionHeader = (title: string) => (
+    <View style={styles.sectionHeader}>
+      <Text variant="titleLarge" style={styles.sectionTitle}>{title}</Text>
+    </View>
   );
 
   const renderContent = () => {
@@ -154,9 +176,9 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
       return (
         <View style={styles.centered}>
           <Text style={styles.errorText}>{locationError}</Text>
-          <Button mode="contained" onPress={getUserLocation} style={styles.retryButton}>
+          <Text onPress={getUserLocation} style={styles.retryButton}>
             Grant Location Permission
-          </Button>
+          </Text>
         </View>
       );
     }
@@ -165,61 +187,184 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
       return (
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loadingText}>Finding nearby groups...</Text>
+          <Text style={styles.loadingText}>Finding groups...</Text>
         </View>
       );
     }
 
-    if (groups.length === 0) {
-      return (
-        <View style={styles.centered}>
-          <Text>No nearby groups found</Text>
-          <Text style={styles.subText}>Create a new group to get started!</Text>
-        </View>
-      );
-    }
+    const groupsToShow = selectedSection === 'nearby' ? nearbyGroups : userGroups;
 
     return (
-      <FlatList
-        data={groups}
-        renderItem={renderGroupCard}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.list}
-        onRefresh={getUserLocation}
-        refreshing={loading}
-      />
+      <View style={styles.groupsContainer}>
+        {groupsToShow.length > 0 ? (
+          <FlatList
+            data={groupsToShow}
+            renderItem={renderGroupCard}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.groupsList}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl refreshing={loading} onRefresh={getUserLocation} />
+            }
+          />
+        ) : (
+          <View style={styles.emptyState}>
+            <MaterialCommunityIcons 
+              name={selectedSection === 'nearby' ? 'map-search' : 'account-group'} 
+              size={64} 
+              color={colors.disabled} 
+            />
+            <Text style={styles.emptyTitle}>
+              {selectedSection === 'nearby' ? 'No nearby groups' : 'No active groups'}
+            </Text>
+            <Text style={styles.subText}>
+              {selectedSection === 'nearby' 
+                ? 'Create a new group to get started!' 
+                : 'Join or create a group to see it here'}
+            </Text>
+            <Button 
+              mode="contained"
+              onPress={() => navigation.navigate('CreateGroup')}
+              style={styles.emptyButton}
+            >
+              Create Group
+            </Button>
+          </View>
+        )}
+      </View>
     );
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await Promise.all([
+      refreshWallet(),
+      // Add other refresh logic
+    ]);
+    setRefreshing(false);
   };
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <View style={styles.walletInfo}>
-          <Text variant="titleMedium" style={styles.walletBalance}>
-            ₹{balance.toFixed(2)}
-          </Text>
+      <ScrollView
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
+        <View style={styles.header}>
+          <LinearGradient
+            colors={[colors.primary, colors.primaryDark]}
+            style={styles.headerGradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+          >
+            <View style={styles.headerPattern}>
+              {/* Add decorative circles */}
+              <View style={[styles.patternCircle, styles.circle1]} />
+              <View style={[styles.patternCircle, styles.circle2]} />
+              <View style={[styles.patternCircle, styles.circle3]} />
+            </View>
+            <View style={styles.headerContent}>
+              <Text variant="titleMedium" style={styles.greeting}>
+                Welcome back,
+              </Text>
+              <Text variant="headlineSmall" style={styles.name}>
+                {user?.displayName || user?.phoneNumber}
+              </Text>
+            </View>
+          </LinearGradient>
         </View>
-        <View style={styles.headerActions}>
-          <IconButton
-            icon="wallet"
-            size={24}
-            onPress={() => navigation.navigate('Wallet')}
-          />
-          <IconButton
-            icon="account"
-            size={24}
-            onPress={() => navigation.navigate('Profile')}
-          />
+
+        <View style={styles.mainContent}>
+          <View style={styles.balanceSection}>
+            <BalanceCard
+              title="Wallet Balance"
+              balance={balance}
+              subtitle="Available for group orders"
+              onPress={() => navigation.navigate('Wallet')}
+            />
+
+            <BalanceCard
+              title="Reward Coins"
+              balance={rewardCoins}
+              variant="secondary"
+              subtitle="Earn more by leading groups"
+              onPress={() => navigation.navigate('Wallet')}
+            />
+          </View>
+
+          <View style={styles.actionsSection}>
+            <Text variant="titleMedium" style={styles.sectionTitle}>Quick Actions</Text>
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.actionsContainer}
+            >
+              <CategoryButton
+                icon="plus-circle"
+                label="Create Group"
+                onPress={() => navigation.navigate('CreateGroup')}
+                variant="primary"
+              />
+              <CategoryButton
+                icon="wallet"
+                label="My Wallet"
+                onPress={() => navigation.navigate('Wallet')}
+                variant="secondary"
+              />
+              <CategoryButton
+                icon="account"
+                label="Profile"
+                onPress={() => navigation.navigate('Profile')}
+                variant="accent"
+              />
+              <CategoryButton
+                icon="map-marker"
+                label="Location"
+                onPress={() => navigation.navigate('LocationPrivacy')}
+                variant="secondary"
+              />
+            </ScrollView>
+          </View>
+
+          <View style={styles.groupsSection}>
+            <View style={styles.sectionHeader}>
+              <Text variant="titleMedium" style={styles.sectionTitle}>Groups</Text>
+              <View style={styles.tabContainer}>
+                <TouchableOpacity
+                  onPress={() => setSelectedSection('nearby')}
+                  style={[
+                    styles.tab,
+                    selectedSection === 'nearby' && styles.activeTab
+                  ]}
+                >
+                  <Text style={[
+                    styles.tabText,
+                    selectedSection === 'nearby' && styles.activeTabText
+                  ]}>
+                    Nearby
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => setSelectedSection('active')}
+                  style={[
+                    styles.tab,
+                    selectedSection === 'active' && styles.activeTab
+                  ]}
+                >
+                  <Text style={[
+                    styles.tabText,
+                    selectedSection === 'active' && styles.activeTabText
+                  ]}>
+                    Active
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+            {renderContent()}
+          </View>
         </View>
-      </View>
-
-      {renderContent()}
-
-      <FAB
-        icon="plus"
-        style={styles.fab}
-        onPress={() => navigation.navigate('CreateGroup')}
-      />
+      </ScrollView>
     </View>
   );
 }
@@ -230,42 +375,135 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: spacing.sm,
-    backgroundColor: colors.surface,
-    elevation: 2,
+    height: 180,
+    overflow: 'hidden',
   },
-  walletInfo: {
+  headerGradient: {
     flex: 1,
-    paddingLeft: spacing.sm,
+    position: 'relative',
   },
-  walletBalance: {
-    color: colors.primary,
+  headerPattern: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.1,
+  },
+  patternCircle: {
+    position: 'absolute',
+    backgroundColor: colors.background,
+    borderRadius: 9999,
+  },
+  circle1: {
+    width: 200,
+    height: 200,
+    top: -100,
+    right: -50,
+    opacity: 0.1,
+  },
+  circle2: {
+    width: 150,
+    height: 150,
+    top: 50,
+    right: 50,
+    opacity: 0.05,
+  },
+  circle3: {
+    width: 100,
+    height: 100,
+    top: -20,
+    left: 30,
+    opacity: 0.08,
+  },
+  headerContent: {
+    padding: spacing.lg,
+    paddingTop: spacing.xl,
+  },
+  mainContent: {
+    flex: 1,
+    backgroundColor: colors.background,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    marginTop: -24,
+    paddingTop: spacing.lg,
+  },
+  greeting: {
+    color: colors.background,
+    opacity: 0.9,
+  },
+  name: {
+    color: colors.background,
     fontWeight: 'bold',
   },
-  headerActions: {
-    flexDirection: 'row',
+  balanceSection: {
+    padding: spacing.lg,
+    gap: spacing.md,
   },
-  list: {
-    padding: spacing.md,
+  actionsSection: {
+    paddingVertical: spacing.lg,
+  },
+  sectionTitle: {
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.md,
+    color: colors.text,
+    fontWeight: 'bold',
+  },
+  actionsContainer: {
+    paddingHorizontal: spacing.lg,
+    gap: spacing.md,
+    flexDirection: 'row',
   },
   card: {
     marginBottom: spacing.md,
   },
-  groupInfo: {
+  groupCard: {
+    marginBottom: spacing.md,
+  },
+  cardContent: {
+    padding: spacing.md,
+  },
+  cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: spacing.sm,
+    marginBottom: spacing.sm,
   },
-  groupStats: {
-    flex: 1,
+  groupName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: colors.text,
   },
-  distance: {
+  memberCount: {
+    fontSize: 12,
+    color: colors.textSecondary,
+  },
+  cardDetails: {
+    gap: spacing.sm,
+  },
+  description: {
+    color: colors.textSecondary,
+    fontSize: 14,
+  },
+  amountContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  amountLabel: {
+    color: colors.textSecondary,
+    fontSize: 14,
+  },
+  amount: {
     color: colors.primary,
     fontWeight: 'bold',
+    fontSize: 16,
+  },
+  distance: {
+    color: colors.textSecondary,
+    fontSize: 12,
+  },
+  cardFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: spacing.md,
   },
   centered: {
     flex: 1,
@@ -293,5 +531,70 @@ const styles = StyleSheet.create({
     margin: spacing.md,
     right: 0,
     bottom: 0,
+  },
+  section: {
+    marginBottom: spacing.lg,
+  },
+  groupsContainer: {
+    flex: 1,
+    minHeight: 400,
+  },
+  groupsList: {
+    padding: spacing.md,
+  },
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.xl,
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: colors.text,
+    marginTop: spacing.lg,
+    marginBottom: spacing.xs,
+  },
+  emptyButton: {
+    marginTop: spacing.lg,
+  },
+  tabContainer: {
+    flexDirection: 'row',
+    backgroundColor: colors.surface,
+    borderRadius: 9999,
+    padding: 4,
+    ...elevation.small,
+  },
+  tab: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    color: colors.textSecondary,
+  },
+  activeTab: {
+    backgroundColor: colors.primary,
+    color: colors.background,
+    borderRadius: 9999,
+  },
+  tabText: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  activeTabText: {
+    color: colors.background,
+  },
+  groupsSection: {
+    flex: 1,
+    backgroundColor: colors.surfaceVariant,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: spacing.lg,
+    ...elevation.small,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.lg,
   },
 }); 
