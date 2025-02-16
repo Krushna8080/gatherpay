@@ -6,7 +6,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { MainStackParamList } from '../../navigation/MainNavigator';
 import { colors, spacing } from '../../theme';
 import * as Location from 'expo-location';
-import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
+import { collection, query, where, getDocs, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { useWallet } from '../../contexts/WalletContext';
 
@@ -82,7 +82,7 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
     }
   };
 
-  const fetchNearbyGroups = async () => {
+  const fetchNearbyGroups = () => {
     if (!location) return;
 
     try {
@@ -94,35 +94,40 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
         orderBy('createdAt', 'desc')
       );
       
-      const querySnapshot = await getDocs(q);
-      const nearbyGroups: Group[] = [];
-      
-      querySnapshot.forEach((doc) => {
-        const data = doc.data() as Group;
-        const distance = calculateDistance(
-          location.coords.latitude,
-          location.coords.longitude,
-          data.location.latitude,
-          data.location.longitude
-        );
+      return onSnapshot(q, (querySnapshot) => {
+        const nearbyGroups: Group[] = [];
+        
+        querySnapshot.forEach((doc) => {
+          const data = doc.data() as Group;
+          const distance = calculateDistance(
+            location.coords.latitude,
+            location.coords.longitude,
+            data.location.latitude,
+            data.location.longitude
+          );
 
-        // Only include groups within MAX_DISTANCE
-        if (distance <= MAX_DISTANCE) {
-          nearbyGroups.push({
-            ...data,
-            id: doc.id,
-            distance,
-          });
-        }
+          // Only include groups within MAX_DISTANCE
+          if (distance <= MAX_DISTANCE) {
+            nearbyGroups.push({
+              ...data,
+              id: doc.id,
+              distance,
+            });
+          }
+        });
+
+        // Sort groups by distance
+        const sortedGroups = nearbyGroups.sort((a, b) => (a.distance || 0) - (b.distance || 0));
+        setGroups(sortedGroups);
+        setLoading(false);
+      }, (error) => {
+        console.error('Error fetching groups:', error);
+        Alert.alert('Error', 'Failed to fetch nearby groups. Please try again.');
+        setLoading(false);
       });
-
-      // Sort groups by distance
-      const sortedGroups = nearbyGroups.sort((a, b) => (a.distance || 0) - (b.distance || 0));
-      setGroups(sortedGroups);
     } catch (error) {
-      console.error('Error fetching groups:', error);
-      Alert.alert('Error', 'Failed to fetch nearby groups. Please try again.');
-    } finally {
+      console.error('Error setting up groups listener:', error);
+      Alert.alert('Error', 'Failed to set up groups listener. Please try again.');
       setLoading(false);
     }
   };

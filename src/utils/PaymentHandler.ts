@@ -37,7 +37,7 @@ export class PaymentHandler {
         success: true,
         paymentId: paymentRef.id,
       };
-    } catch (error) {
+    } catch (error:any) {
       errorHandler.handleError(error, 'PaymentHandler');
       return {
         success: false,

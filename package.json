@@ -33,7 +33,8 @@
     "react-native-web": "~0.19.6",
     "expo-sharing": "~11.10.0",
     "expo-notifications": "~0.27.8",
-    "expo-device": "~5.9.4"
+    "expo-device": "~5.9.4",
+    "expo-linear-gradient": "~12.7.2"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",

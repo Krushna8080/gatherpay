@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, ScrollView, Alert } from 'react-native';
-import { Text, Button, Card, List, IconButton, Portal, Modal, TextInput } from 'react-native-paper';
+import { Text, Button, Card, List, IconButton, Portal, Modal, TextInput, Surface } from 'react-native-paper';
 import { useWallet } from '../../contexts/WalletContext';
 import { colors, spacing } from '../../theme';
 import { AnimatedNumber } from '../../components/ui/AnimatedNumber';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 
 export default function WalletScreen() {
   const { balance, rewardCoins, transactions, addMoney, refreshWallet } = useWallet();
@@ -38,9 +39,14 @@ export default function WalletScreen() {
 
   return (
     <ScrollView style={styles.container}>
-      <Card style={styles.balanceCard}>
-        <Card.Content>
-          <Text variant="titleLarge" style={styles.balanceTitle}>Wallet Balance</Text>
+      <LinearGradient
+        colors={[colors.primary, colors.secondary]}
+        style={styles.balanceCard}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+      >
+        <View style={styles.balanceContent}>
+          <Text variant="titleLarge" style={styles.balanceTitle}>Total Balance</Text>
           <View style={styles.balanceContainer}>
             <Text style={styles.currencySymbol}>₹</Text>
             <AnimatedNumber
@@ -49,53 +55,62 @@ export default function WalletScreen() {
             />
           </View>
           
-          <View style={styles.rewardContainer}>
-            <Text variant="titleMedium">Reward Coins</Text>
-            <AnimatedNumber
-              value={rewardCoins}
-              style={styles.rewardAmount}
-            />
-          </View>
-        </Card.Content>
-      </Card>
+          <Surface style={styles.rewardContainer} elevation={2}>
+            <View style={styles.rewardContent}>
+              <MaterialCommunityIcons name="gift" size={24} color={colors.primary} />
+              <View style={styles.rewardTextContainer}>
+                <Text variant="titleMedium" style={styles.rewardTitle}>Reward Coins</Text>
+                <AnimatedNumber
+                  value={rewardCoins}
+                  style={styles.rewardAmount}
+                />
+              </View>
+            </View>
+          </Surface>
+        </View>
+      </LinearGradient>
 
       <View style={styles.actionButtons}>
         <Button
           mode="contained"
           onPress={() => setShowAddFundsModal(true)}
-          style={styles.actionButton}
+          style={[styles.actionButton, styles.addFundsButton]}
           icon="wallet-plus"
+          contentStyle={styles.buttonContent}
         >
           Add Funds
         </Button>
         <Button
           mode="contained"
           onPress={() => Alert.alert('Coming Soon', 'Withdraw feature will be available soon!')}
-          style={styles.actionButton}
+          style={[styles.actionButton, styles.withdrawButton]}
           icon="wallet-giftcard"
+          contentStyle={styles.buttonContent}
         >
           Withdraw
         </Button>
       </View>
 
       <View style={styles.transactionsHeader}>
-        <Text variant="titleLarge">Recent Transactions</Text>
+        <Text variant="titleLarge" style={styles.transactionsTitle}>Recent Transactions</Text>
         <View style={styles.transactionActions}>
           <IconButton
             icon="export"
             size={24}
             onPress={handleExportTransactions}
+            style={styles.actionIcon}
           />
           <IconButton
             icon="refresh"
             size={24}
             onPress={() => refreshWallet()}
+            style={styles.actionIcon}
           />
         </View>
       </View>
 
       {transactions.length === 0 ? (
-        <View style={styles.emptyState}>
+        <Surface style={styles.emptyState} elevation={2}>
           <MaterialCommunityIcons
             name="wallet-outline"
             size={64}
@@ -107,32 +122,43 @@ export default function WalletScreen() {
           <Text variant="bodyMedium" style={styles.emptyStateSubtext}>
             You haven't made any transactions yet
           </Text>
-        </View>
+        </Surface>
       ) : (
-        <View style={styles.transactionsList}>
+        <Surface style={styles.transactionsList} elevation={2}>
           {transactions.map((transaction) => (
             <List.Item
               key={transaction.id}
               title={transaction.description}
               description={new Date(transaction.timestamp).toLocaleDateString()}
               left={props => (
-                <List.Icon
-                  {...props}
-                  icon={
-                    transaction.type === 'credit'
-                      ? 'arrow-down'
+                <View style={[
+                  styles.transactionIcon,
+                  {
+                    backgroundColor: transaction.type === 'credit'
+                      ? colors.success + '20'
                       : transaction.type === 'debit'
-                      ? 'arrow-up'
-                      : 'swap-horizontal'
+                      ? colors.error + '20'
+                      : colors.primary + '20'
                   }
-                  color={
-                    transaction.type === 'credit'
-                      ? colors.success
-                      : transaction.type === 'debit'
-                      ? colors.error
-                      : colors.primary
-                  }
-                />
+                ]}>
+                  <List.Icon
+                    {...props}
+                    icon={
+                      transaction.type === 'credit'
+                        ? 'arrow-down'
+                        : transaction.type === 'debit'
+                        ? 'arrow-up'
+                        : 'swap-horizontal'
+                    }
+                    color={
+                      transaction.type === 'credit'
+                        ? colors.success
+                        : transaction.type === 'debit'
+                        ? colors.error
+                        : colors.primary
+                    }
+                  />
+                </View>
               )}
               right={() => (
                 <Text
@@ -151,9 +177,10 @@ export default function WalletScreen() {
                   {transaction.type === 'credit' ? '+' : '-'}₹{transaction.amount}
                 </Text>
               )}
+              style={styles.transactionItem}
             />
           ))}
-        </View>
+        </Surface>
       )}
 
       <Portal>
@@ -202,13 +229,19 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   balanceCard: {
-    margin: spacing.lg,
-    backgroundColor: colors.primary,
+    borderRadius: 20,
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.lg,
+    overflow: 'hidden',
+  },
+  balanceContent: {
+    padding: spacing.xl,
   },
   balanceTitle: {
     color: colors.surface,
     textAlign: 'center',
     marginBottom: spacing.sm,
+    opacity: 0.9,
   },
   balanceContainer: {
     flexDirection: 'row',
@@ -227,12 +260,22 @@ const styles = StyleSheet.create({
     color: colors.surface,
   },
   rewardContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
     backgroundColor: colors.surface,
-    padding: spacing.sm,
-    borderRadius: 8,
+    borderRadius: 12,
+    padding: spacing.md,
+    marginTop: spacing.md,
+  },
+  rewardContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  rewardTextContainer: {
+    marginLeft: spacing.md,
+    flex: 1,
+  },
+  rewardTitle: {
+    color: colors.primary,
+    opacity: 0.8,
   },
   rewardAmount: {
     fontSize: 20,
@@ -243,10 +286,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     margin: spacing.lg,
+    gap: spacing.md,
   },
   actionButton: {
     flex: 1,
-    marginHorizontal: spacing.xs,
+    borderRadius: 12,
+  },
+  addFundsButton: {
+    backgroundColor: colors.primary,
+  },
+  withdrawButton: {
+    backgroundColor: colors.secondary,
+  },
+  buttonContent: {
+    height: 48,
   },
   transactionsHeader: {
     flexDirection: 'row',
@@ -255,11 +308,34 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     marginBottom: spacing.md,
   },
+  transactionsTitle: {
+    color: colors.primary,
+    fontWeight: 'bold',
+  },
   transactionActions: {
     flexDirection: 'row',
   },
+  actionIcon: {
+    margin: 0,
+  },
   transactionsList: {
     backgroundColor: colors.surface,
+    borderRadius: 12,
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.lg,
+    overflow: 'hidden',
+  },
+  transactionItem: {
+    borderBottomWidth: 1,
+    borderBottomColor: colors.background,
+  },
+  transactionIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: spacing.sm,
   },
   transactionAmount: {
     fontWeight: 'bold',
@@ -270,6 +346,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: spacing.xl * 2,
+    marginHorizontal: spacing.lg,
+    borderRadius: 12,
   },
   emptyStateText: {
     marginTop: spacing.md,

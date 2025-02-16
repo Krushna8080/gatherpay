@@ -6,15 +6,17 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { MainStackParamList } from '../../navigation/MainNavigator';
 import { colors, spacing } from '../../theme';
-import { doc, getDoc, updateDoc, collection, addDoc, onSnapshot, deleteDoc, arrayUnion, arrayRemove, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, collection, addDoc, onSnapshot, deleteDoc, arrayUnion, arrayRemove, serverTimestamp, query, orderBy, getDocs } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { GiftedChat, IMessage } from 'react-native-gifted-chat';
 import { useWallet } from '../../contexts/WalletContext';
 import * as ImagePicker from 'expo-image-picker';
-import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
+import * as Location from 'expo-location';
 
 const MAX_GROUP_MEMBERS = 10;
 const LEADER_REWARD_PERCENTAGE = 5; // 5% of order amount as reward
+const MAX_GROUPS_PER_USER = 5;
 
 type GroupDetailsScreenProps = {
   navigation: NativeStackNavigationProp<MainStackParamList, 'GroupDetails'>;
@@ -53,10 +55,11 @@ interface Group {
   memberCount: number;
   status: 'open' | 'ordering' | 'ordered' | 'completed' | 'cancelled';
   createdBy: string;
-  members: string[];
+  members: { [key: string]: boolean };
   location: {
     latitude: number;
     longitude: number;
+    lastUpdated?: Date;
   };
   lastUpdated: Date;
   currentOrder?: Order;
@@ -81,10 +84,29 @@ export default function GroupDetailsScreen({
   const { user } = useAuth();
   const { groupId } = route.params;
   const { balance, deductMoney, addRewardCoins } = useWallet();
+  const [userLocation, setUserLocation] = useState<Location.LocationObject | null>(null);
 
   useEffect(() => {
     const unsubscribe = subscribeToGroup();
     const unsubscribeMessages = subscribeToMessages();
+    const getLocation = async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('Permission Denied', 'Location permission is required for this feature');
+          return;
+        }
+
+        const location = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        setUserLocation(location);
+      } catch (error) {
+        console.error('Error getting location:', error);
+      }
+    };
+
+    getLocation();
     return () => {
       unsubscribe();
       unsubscribeMessages();
@@ -107,9 +129,10 @@ export default function GroupDetailsScreen({
     });
   };
 
-  const fetchMembers = async (memberIds: string[]) => {
+  const fetchMembers = async (membersMap: { [key: string]: boolean }) => {
     try {
       setMemberLoading(true);
+      const memberIds = Object.keys(membersMap);
       const memberPromises = memberIds.map(id => getDoc(doc(db, 'users', id)));
       const memberDocs = await Promise.all(memberPromises);
       const memberData: GroupMember[] = memberDocs.map(doc => ({
@@ -127,32 +150,29 @@ export default function GroupDetailsScreen({
 
   const subscribeToMessages = () => {
     const messagesRef = collection(db, 'groups', groupId, 'messages');
-    return onSnapshot(messagesRef, (snapshot) => {
+    const q = query(messagesRef, orderBy('createdAt', 'desc'));
+    return onSnapshot(q, (snapshot) => {
       const newMessages: IMessage[] = [];
       snapshot.forEach((doc) => {
         const messageData = doc.data();
         newMessages.push({
           _id: doc.id,
           text: messageData.text,
-          createdAt: messageData.createdAt.toDate(),
+          createdAt: messageData.createdAt?.toDate() || new Date(),
           user: {
             _id: messageData.user._id,
             name: messageData.user.name,
           },
         });
       });
-      setMessages(newMessages.sort((a, b) => {
-        const timeA = a.createdAt instanceof Date ? a.createdAt.getTime() : Number(a.createdAt);
-        const timeB = b.createdAt instanceof Date ? b.createdAt.getTime() : Number(b.createdAt);
-        return timeB - timeA;
-      }));
+      setMessages(newMessages);
     });
   };
 
   const handleJoinGroup = async () => {
     if (!group || !user) return;
 
-    if (group.members.length >= MAX_GROUP_MEMBERS) {
+    if (group.memberCount >= MAX_GROUP_MEMBERS) {
       Alert.alert('Error', 'Group is full');
       return;
     }
@@ -164,8 +184,9 @@ export default function GroupDetailsScreen({
 
     try {
       const groupRef = doc(db, 'groups', groupId);
+      const updatedMembers = { ...group.members, [user.uid]: true };
       await updateDoc(groupRef, {
-        members: arrayUnion(user.uid),
+        members: updatedMembers,
         memberCount: group.memberCount + 1,
         lastUpdated: serverTimestamp(),
       });
@@ -197,8 +218,10 @@ export default function GroupDetailsScreen({
           onPress: async () => {
             try {
               const groupRef = doc(db, 'groups', groupId);
+              const updatedMembers = { ...group.members };
+              delete updatedMembers[user.uid];
               await updateDoc(groupRef, {
-                members: arrayRemove(user.uid),
+                members: updatedMembers,
                 memberCount: group.memberCount - 1,
                 lastUpdated: serverTimestamp(),
               });
@@ -213,28 +236,58 @@ export default function GroupDetailsScreen({
     );
   };
 
-  const handleCancelGroup = async () => {
-    if (!group || !isLeader) return;
+  const handleCloseGroup = async () => {
+    if (!group || !isLeader || !user) return;
 
     Alert.alert(
-      'Cancel Group',
-      'Are you sure you want to cancel this group? This action cannot be undone.',
+      'Close Group',
+      'Are you sure you want to close this group? This will permanently delete all group data including chats and media.',
       [
-        { text: 'No', style: 'cancel' },
+        { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Yes, Cancel Group',
+          text: 'Close Group',
           style: 'destructive',
           onPress: async () => {
             try {
-              const groupRef = doc(db, 'groups', groupId);
-              await updateDoc(groupRef, {
-                status: 'cancelled',
-                lastUpdated: serverTimestamp(),
+              // 1. Send a final system message
+              const messagesRef = collection(db, 'groups', groupId, 'messages');
+              await addDoc(messagesRef, {
+                text: 'This group has been closed by the leader.',
+                createdAt: serverTimestamp(),
+                user: {
+                  _id: 'system',
+                  name: 'System'
+                },
+                system: true
               });
+
+              // 2. Delete all messages
+              const messagesSnapshot = await getDocs(messagesRef);
+              const messageDeletions = messagesSnapshot.docs.map(doc => 
+                deleteDoc(doc.ref)
+              );
+              await Promise.all(messageDeletions);
+
+              // 3. Delete any media files
+              if (group.currentOrder?.screenshot) {
+                const storage = getStorage();
+                const screenshotRef = ref(storage, `orders/${groupId}/${group.currentOrder.id}.jpg`);
+                try {
+                  await deleteObject(screenshotRef);
+                } catch (error) {
+                  console.error('Error deleting screenshot:', error);
+                }
+              }
+
+              // 4. Delete the group document
+              const groupRef = doc(db, 'groups', groupId);
+              await deleteDoc(groupRef);
+
+              Alert.alert('Success', 'Group has been closed and deleted');
               navigation.goBack();
             } catch (error) {
-              console.error('Error cancelling group:', error);
-              Alert.alert('Error', 'Failed to cancel group. Please try again.');
+              console.error('Error closing group:', error);
+              Alert.alert('Error', 'Failed to close group. Please try again.');
             }
           },
         },
@@ -245,7 +298,7 @@ export default function GroupDetailsScreen({
   const handleStartOrder = async () => {
     if (!group || !isLeader) return;
 
-    if (group.members.length < 2) {
+    if (group.memberCount < 2) {
       Alert.alert('Error', 'Need at least 2 members to start an order');
       return;
     }
@@ -389,25 +442,43 @@ export default function GroupDetailsScreen({
     }
   };
 
-  const onSend = useCallback(async (newMessages: IMessage[] = []) => {
+  const onSend = useCallback(async (messages: IMessage[] = []) => {
     if (!user || !group) return;
 
     try {
       const messagesRef = collection(db, 'groups', groupId, 'messages');
-      const message = newMessages[0];
+      const newMessage = messages[0];
       await addDoc(messagesRef, {
-        text: message.text,
-        createdAt: new Date(),
+        text: newMessage.text,
+        createdAt: serverTimestamp(),
         user: {
           _id: user.uid,
-          name: user.phoneNumber || 'Unknown User',
-        },
+          name: user.phoneNumber || 'Unknown User'
+        }
       });
     } catch (error) {
       console.error('Error sending message:', error);
       Alert.alert('Error', 'Failed to send message. Please try again.');
     }
-  }, [groupId, user]);
+  }, [user, group, groupId]);
+
+  const handleShareLocation = async () => {
+    if (!userLocation || !group || !user) return;
+
+    try {
+      const groupRef = doc(db, 'groups', groupId);
+      await updateDoc(groupRef, {
+        'location.lastShared': serverTimestamp(),
+        'location.sharedBy': user.uid,
+        'location.latitude': userLocation.coords.latitude,
+        'location.longitude': userLocation.coords.longitude,
+      });
+      Alert.alert('Success', 'Location shared with the group');
+    } catch (error) {
+      console.error('Error sharing location:', error);
+      Alert.alert('Error', 'Failed to share location. Please try again.');
+    }
+  };
 
   if (loading) {
     return (
@@ -517,7 +588,7 @@ export default function GroupDetailsScreen({
           </Card.Content>
         </Card>
 
-        {group.status === 'open' && !group.members.includes(user!.uid) && (
+        {group.status === 'open' && !group.members[user!.uid] && (
           <Button
             mode="contained"
             onPress={handleJoinGroup}
@@ -527,7 +598,7 @@ export default function GroupDetailsScreen({
           </Button>
         )}
 
-        {group.members.includes(user!.uid) && !isLeader && (
+        {group.members[user!.uid] && !isLeader && (
           <Button
             mode="outlined"
             onPress={handleLeaveGroup}
@@ -549,13 +620,24 @@ export default function GroupDetailsScreen({
             </Button>
             <Button
               mode="outlined"
-              onPress={handleCancelGroup}
+              onPress={handleCloseGroup}
               style={styles.actionButton}
-              textColor={colors.error}
+              textColor={colors.warning}
             >
-              Cancel Group
+              Close Group
             </Button>
           </View>
+        )}
+
+        {group.members[user!.uid] && (
+          <Button
+            mode="outlined"
+            onPress={handleShareLocation}
+            style={styles.actionButton}
+            icon="map-marker"
+          >
+            Share Location
+          </Button>
         )}
       </ScrollView>
 

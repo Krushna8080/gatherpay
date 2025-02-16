@@ -57,6 +57,11 @@ export default function CreateGroupScreen({ navigation }: CreateGroupScreenProps
       return;
     }
 
+    if (!user) {
+      Alert.alert('Error', 'You must be logged in to create a group');
+      return;
+    }
+
     const amount = parseFloat(targetAmount);
     if (isNaN(amount) || amount <= 0) {
       Alert.alert('Error', 'Please enter a valid target amount');
@@ -66,16 +71,21 @@ export default function CreateGroupScreen({ navigation }: CreateGroupScreenProps
     try {
       setLoading(true);
 
+      // Create initial members map with creator
+      const membersMap = {
+        [user.uid]: true
+      };
+
       // Create group in Firestore
       const groupRef = await addDoc(collection(db, 'groups'), {
         name,
         description,
         targetAmount: amount,
-        createdBy: user?.uid,
+        createdBy: user.uid,
         createdAt: serverTimestamp(),
         status: 'open',
         memberCount: 1,
-        members: [user?.uid],
+        members: membersMap,
         location: {
           latitude: location.coords.latitude,
           longitude: location.coords.longitude,
@@ -85,9 +95,12 @@ export default function CreateGroupScreen({ navigation }: CreateGroupScreenProps
 
       // Navigate to group details
       navigation.replace('GroupDetails', { groupId: groupRef.id });
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error creating group:', error);
-      Alert.alert('Error', 'Failed to create group. Please try again.');
+      Alert.alert(
+        'Error',
+        error.message || 'Failed to create group. Please try again.'
+      );
     } finally {
       setLoading(false);
     }
