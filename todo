@@ -1,0 +1,30 @@
+Project Setup & Initial Structure
+Create a React Native project using Expo
+Set up Firebase configuration
+Initialize Git repository
+Set up dependency management
+Core Infrastructure (Phase 1)
+Firebase configuration and initialization
+Basic app navigation structure
+Theme and UI component library setup
+Authentication flow
+User Management & Wallet (Phase 2)
+User registration and phone verification
+Wallet creation and management
+Basic profile management
+Transaction history
+Location & Group Features (Phase 3)
+Geolocation integration
+Group creation and management
+Nearby groups discovery
+Group chat functionality
+Order Management (Phase 4)
+Order creation flow
+Order verification system
+Payment splitting logic
+Leader selection mechanism
+Payment & Rewards (Phase 5)
+Wallet transactions
+Payment gateway integration
+Reward system implementation
+Split payment approval flow what we completed so far 
