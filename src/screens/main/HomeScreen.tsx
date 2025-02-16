@@ -20,9 +20,13 @@ interface Group {
   description: string;
   memberCount: number;
   targetAmount: number;
+  status: 'open' | 'ordering' | 'ordered' | 'completed' | 'cancelled';
+  createdBy: string;
+  members: { [key: string]: boolean };
   location: {
     latitude: number;
     longitude: number;
+    lastUpdated?: Date;
   };
   distance?: number; // Distance from user in meters
 }
@@ -32,20 +36,53 @@ const MAX_DISTANCE = 5000; // 5km radius
 export default function HomeScreen({ navigation }: HomeScreenProps) {
   const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
-  const [location, setLocation] = useState<Location.LocationObject | null>(null);
+  const [userLocation, setUserLocation] = useState<Location.LocationObject | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
   const { user } = useAuth();
   const { balance } = useWallet();
 
   useEffect(() => {
-    requestLocationPermission();
+    getUserLocation();
   }, []);
 
   useEffect(() => {
-    if (location) {
-      fetchNearbyGroups();
-    }
-  }, [location]);
+    if (!user || !userLocation) return;
+
+    const groupsRef = collection(db, 'groups');
+    const q = query(
+      groupsRef,
+      where('status', '==', 'open'),
+      orderBy('createdAt', 'desc')
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const nearbyGroups: Group[] = [];
+      snapshot.forEach((doc) => {
+        const groupData = { id: doc.id, ...doc.data() } as Group;
+        
+        // Calculate distance from user
+        const distance = calculateDistance(
+          userLocation.coords.latitude,
+          userLocation.coords.longitude,
+          groupData.location.latitude,
+          groupData.location.longitude
+        );
+
+        // Only include groups within 5km
+        if (distance <= 5) {
+          groupData.distance = distance;
+          nearbyGroups.push(groupData);
+        }
+      });
+
+      // Sort groups by distance
+      nearbyGroups.sort((a, b) => (a.distance || 0) - (b.distance || 0));
+      setGroups(nearbyGroups);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [user, userLocation]);
 
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
     const R = 6371e3; // Earth's radius in meters
@@ -62,11 +99,9 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
     return R * c; // Distance in meters
   };
 
-  const requestLocationPermission = async () => {
+  const getUserLocation = async () => {
     try {
-      setLocationError(null);
       const { status } = await Location.requestForegroundPermissionsAsync();
-      
       if (status !== 'granted') {
         setLocationError('Location permission is required to find nearby groups');
         return;
@@ -75,60 +110,11 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
       const location = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.Balanced,
       });
-      setLocation(location);
+      setUserLocation(location);
+      setLocationError(null);
     } catch (error) {
       console.error('Error getting location:', error);
-      setLocationError('Unable to get your location. Please check your GPS settings.');
-    }
-  };
-
-  const fetchNearbyGroups = () => {
-    if (!location) return;
-
-    try {
-      setLoading(true);
-      const groupsRef = collection(db, 'groups');
-      const q = query(
-        groupsRef,
-        where('status', '==', 'open'),
-        orderBy('createdAt', 'desc')
-      );
-      
-      return onSnapshot(q, (querySnapshot) => {
-        const nearbyGroups: Group[] = [];
-        
-        querySnapshot.forEach((doc) => {
-          const data = doc.data() as Group;
-          const distance = calculateDistance(
-            location.coords.latitude,
-            location.coords.longitude,
-            data.location.latitude,
-            data.location.longitude
-          );
-
-          // Only include groups within MAX_DISTANCE
-          if (distance <= MAX_DISTANCE) {
-            nearbyGroups.push({
-              ...data,
-              id: doc.id,
-              distance,
-            });
-          }
-        });
-
-        // Sort groups by distance
-        const sortedGroups = nearbyGroups.sort((a, b) => (a.distance || 0) - (b.distance || 0));
-        setGroups(sortedGroups);
-        setLoading(false);
-      }, (error) => {
-        console.error('Error fetching groups:', error);
-        Alert.alert('Error', 'Failed to fetch nearby groups. Please try again.');
-        setLoading(false);
-      });
-    } catch (error) {
-      console.error('Error setting up groups listener:', error);
-      Alert.alert('Error', 'Failed to set up groups listener. Please try again.');
-      setLoading(false);
+      setLocationError('Failed to get your location');
     }
   };
 
@@ -168,7 +154,7 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
       return (
         <View style={styles.centered}>
           <Text style={styles.errorText}>{locationError}</Text>
-          <Button mode="contained" onPress={requestLocationPermission} style={styles.retryButton}>
+          <Button mode="contained" onPress={getUserLocation} style={styles.retryButton}>
             Grant Location Permission
           </Button>
         </View>
@@ -199,7 +185,7 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
         renderItem={renderGroupCard}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
-        onRefresh={fetchNearbyGroups}
+        onRefresh={getUserLocation}
         refreshing={loading}
       />
     );

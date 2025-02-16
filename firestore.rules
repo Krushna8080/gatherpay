@@ -6,33 +6,43 @@ service cloud.firestore {
       allow read: if request.auth != null;
       allow write: if request.auth != null && request.auth.uid == userId;
       
-      // Only allow location updates if timestamp is recent
+      // Allow location updates with more flexible timestamp validation
       allow update: if request.auth != null && 
-        request.auth.uid == userId &&
-        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['location', 'lastLocationUpdate']) ||
-        (request.resource.data.lastLocationUpdate is timestamp &&
-         request.resource.data.lastLocationUpdate.toMillis() <= request.time.toMillis() + 60000));
+        request.auth.uid == userId && (
+        // Allow all non-location updates
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['location', 'lastLocationUpdate']) ||
+        // Allow location updates with timestamp validation
+        (request.resource.data.location is map &&
+         request.resource.data.lastLocationUpdate is timestamp &&
+         request.resource.data.lastLocationUpdate.toMillis() >= request.time.toMillis() - 300000) // Allow updates within last 5 minutes
+      );
     }
     
     // Groups
     match /groups/{groupId} {
       allow read: if request.auth != null;
+      
+      // Allow group creation
       allow create: if request.auth != null && 
         request.resource.data.createdBy == request.auth.uid &&
         request.resource.data.status == 'open' &&
         request.resource.data.members is map &&
         request.resource.data.createdAt is timestamp;
       
+      // Allow group updates
       allow update: if request.auth != null && (
-        // Regular members can update non-sensitive fields
+        // Group leader can update all fields
+        resource.data.createdBy == request.auth.uid ||
+        // Members can update specific fields
         (resource.data.members[request.auth.uid] == true && 
-         !request.resource.data.diff(resource.data).affectedKeys().hasAny(['createdBy', 'createdAt', 'status'])) ||
-        // Group leader can update all fields including status
-        (resource.data.createdBy == request.auth.uid)
+         !request.resource.data.diff(resource.data).affectedKeys()
+           .hasAny(['createdBy', 'createdAt','status']))
       );
       
-      allow delete: if request.auth != null && resource.data.createdBy == request.auth.uid;
-         
+      // Allow group deletion by creator
+      allow delete: if request.auth != null && 
+        resource.data.createdBy == request.auth.uid;
+      
       // Group messages subcollection
       match /messages/{messageId} {
         allow read: if request.auth != null && 
@@ -44,12 +54,14 @@ service cloud.firestore {
           request.resource.data.createdAt is timestamp;
         
         allow update: if request.auth != null && 
-          request.resource.data.user._id == request.auth.uid &&
+          resource.data.user._id == request.auth.uid &&
           !request.resource.data.diff(resource.data).affectedKeys().hasAny(['user._id', 'createdAt']);
         
-        allow delete: if request.auth != null && 
-          request.resource.data.user._id == request.auth.uid &&
-          resource.data.createdAt.toMillis() > request.time.toMillis() - 300000; // 5 minutes window
+        // Allow message deletion by creator or group leader
+        allow delete: if request.auth != null && (
+          resource.data.user._id == request.auth.uid ||
+          get(/databases/$(database)/documents/groups/$(groupId)).data.createdBy == request.auth.uid
+        );
       }
     }
     

@@ -1,0 +1,23 @@
+Cursor AI, please execute the following instructions before starting any code generation:
+
+1. **Thorough Review:**  
+   - Carefully read and analyze the entire content of the context.md file provided. This file contains the full blueprint for the GatherPay project, covering all aspects—from user onboarding, wallet setup, geolocation-based group order display, group formation and chat, order verification, fund management, reward distribution, to security and dispute resolution.
+
+2. **Reflect and Plan:**  
+   - Take some time to "think" about every aspect of the project. Evaluate the detailed requirements and dependencies specified in the context.md file.
+   - Review the Cursor AI rule file to ensure that all dependency checks, backup routines, logging, and consistency verifications are in place.
+   - Develop a comprehensive plan outlining:
+     - The breakdown of each major module (e.g., user onboarding, wallet management, dashboard with geolocation, group chat, order verification, transaction processing, reward distribution, security measures).
+     - How all dependencies and file histories will be verified and maintained before making any changes.
+     - Integration points with Firebase (Authentication, Firestore, Storage, Cloud Functions), React Native (for the mobile app), and any external APIs (geolocation, payment gateway, OTP services).
+
+3. **Dependency and Integrity Check:**  
+   - Before proceeding with any file operations, ensure that the current project state is consistent with the stored dependency graph, and that all previous file states are backed up according to the Cursor AI rule file.
+
+4. **Begin Creation Only After Planning:**  
+   - Only once you have thoroughly planned every detail and confirmed that all dependencies, backups, and integrity checks are in place, begin the code creation process.
+   - Ensure that all changes adhere to the industry-level rules specified in the Cursor AI rule file.
+
+Please take a moment to reflect on the entire project, develop your plan, and verify all rules and dependencies. Once your planning is complete and all checks are passed, proceed with the creation of the GatherPay application.
+
+Begin your planning process now.

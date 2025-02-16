@@ -6,7 +6,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { MainStackParamList } from '../../navigation/MainNavigator';
 import { colors, spacing } from '../../theme';
-import { doc, getDoc, updateDoc, collection, addDoc, onSnapshot, deleteDoc, arrayUnion, arrayRemove, serverTimestamp, query, orderBy, getDocs } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, collection, addDoc, onSnapshot, deleteDoc, arrayUnion, arrayRemove, serverTimestamp, query, orderBy, getDocs, writeBatch } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { GiftedChat, IMessage } from 'react-native-gifted-chat';
 import { useWallet } from '../../contexts/WalletContext';
@@ -237,57 +237,73 @@ export default function GroupDetailsScreen({
   };
 
   const handleCloseGroup = async () => {
-    if (!group || !isLeader || !user) return;
+    if (!user || !group) return;
 
+    // Check if user is the group leader
+    if (group.createdBy !== user.uid) {
+      Alert.alert('Error', 'Only the group leader can close the group');
+      return;
+    }
+
+    // Confirm with the user
     Alert.alert(
       'Close Group',
-      'Are you sure you want to close this group? This will permanently delete all group data including chats and media.',
+      'This will permanently delete all group data including chats and media. This action cannot be undone.',
       [
-        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
         {
           text: 'Close Group',
           style: 'destructive',
           onPress: async () => {
             try {
-              // 1. Send a final system message
-              const messagesRef = collection(db, 'groups', groupId, 'messages');
-              await addDoc(messagesRef, {
-                text: 'This group has been closed by the leader.',
-                createdAt: serverTimestamp(),
-                user: {
-                  _id: 'system',
-                  name: 'System'
-                },
-                system: true
+              setLoading(true);
+
+              // Get all messages in the group
+              const messagesRef = collection(db, 'groups', group.id, 'messages');
+              const messagesSnapshot = await getDocs(messagesRef);
+
+              // Start a batch write
+              const batch = writeBatch(db);
+
+              // Delete all messages
+              messagesSnapshot.docs.forEach((doc) => {
+                batch.delete(doc.ref);
               });
 
-              // 2. Delete all messages
-              const messagesSnapshot = await getDocs(messagesRef);
-              const messageDeletions = messagesSnapshot.docs.map(doc => 
-                deleteDoc(doc.ref)
-              );
-              await Promise.all(messageDeletions);
+              // Update group status to closed and record closing time
+              const groupRef = doc(db, 'groups', group.id);
+              batch.update(groupRef, {
+                status: 'completed',
+                closedAt: serverTimestamp(),
+                closedBy: user.uid,
+              });
 
-              // 3. Delete any media files
-              if (group.currentOrder?.screenshot) {
-                const storage = getStorage();
-                const screenshotRef = ref(storage, `orders/${groupId}/${group.currentOrder.id}.jpg`);
-                try {
-                  await deleteObject(screenshotRef);
-                } catch (error) {
-                  console.error('Error deleting screenshot:', error);
-                }
-              }
+              // Send a final system message
+              const finalMessageRef = doc(collection(db, 'groups', group.id, 'messages'));
+              batch.set(finalMessageRef, {
+                _id: finalMessageRef.id,
+                text: 'Group has been closed by the leader',
+                createdAt: serverTimestamp(),
+                system: true,
+                user: {
+                  _id: 'system',
+                  name: 'System',
+                },
+              });
 
-              // 4. Delete the group document
-              const groupRef = doc(db, 'groups', groupId);
-              await deleteDoc(groupRef);
+              // Commit the batch
+              await batch.commit();
 
-              Alert.alert('Success', 'Group has been closed and deleted');
-              navigation.goBack();
-            } catch (error) {
+              // Navigate back to home screen
+              navigation.replace('Home');
+            } catch (error: any) {
               console.error('Error closing group:', error);
               Alert.alert('Error', 'Failed to close group. Please try again.');
+            } finally {
+              setLoading(false);
             }
           },
         },
