@@ -4,7 +4,7 @@ import { Text, Button, Avatar, Card, Divider, List, Portal, Modal, TextInput } f
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../../contexts/AuthContext';
-import { colors, spacing } from '../../theme';
+import { colors, spacing, elevation } from '../../theme';
 import { doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -124,43 +124,61 @@ export default function ProfileScreen({ navigation }: ProfileScreenProps) {
             <View style={[styles.patternCircle, styles.circle3]} />
           </View>
 
-          <TouchableOpacity style={styles.avatarContainer} onPress={handleEditProfile}>
-            <Avatar.Text
-              size={80}
-              label={profile?.name?.[0] || user?.phoneNumber?.[0] || '?'}
-              style={styles.avatar}
-            />
-            <View style={styles.editBadge}>
-              <MaterialCommunityIcons name="pencil" size={16} color={colors.background} />
-            </View>
-          </TouchableOpacity>
+          <View style={styles.topBar}>
+            <TouchableOpacity 
+              style={styles.backButton}
+              onPress={() => navigation.goBack()}
+            >
+              <MaterialCommunityIcons name="arrow-left" size={24} color={colors.background} />
+            </TouchableOpacity>
+            <Text style={styles.screenTitle}>My Profile</Text>
+            <View style={{ width: 40 }} />
+          </View>
 
-          <Text style={styles.name}>{profile?.name || 'User'}</Text>
-          <Text style={styles.phone}>{profile?.phoneNumber || user?.phoneNumber}</Text>
+          <TouchableOpacity style={styles.avatarContainer} onPress={handleEditProfile}>
+            <View style={styles.avatarWrapper}>
+              <Avatar.Text
+                size={80}
+                label={profile?.name?.[0] || user?.phoneNumber?.[0] || '?'}
+                style={styles.avatar}
+              />
+              <View style={styles.editBadge}>
+                <MaterialCommunityIcons name="pencil" size={16} color={colors.background} />
+              </View>
+            </View>
+            <Text style={styles.name}>{profile?.name || 'User'}</Text>
+            <Text style={styles.phone}>{profile?.phoneNumber || user?.phoneNumber}</Text>
+          </TouchableOpacity>
         </LinearGradient>
 
         <View style={styles.content}>
           <Card style={styles.infoCard}>
             <Card.Content>
               <List.Section>
-                <List.Subheader>Personal Information</List.Subheader>
-                <List.Item
-                  title="Email"
-                  description={profile?.email || 'Not set'}
-                  left={props => <List.Icon {...props} icon="email" />}
-                />
-                <Divider />
-                <List.Item
-                  title="Phone"
-                  description={profile?.phoneNumber || user?.phoneNumber}
-                  left={props => <List.Icon {...props} icon="phone" />}
-                />
-                <Divider />
-                <List.Item
-                  title="Member Since"
-                  description={profile?.createdAt.toLocaleDateString()}
-                  left={props => <List.Icon {...props} icon="calendar" />}
-                />
+                <List.Subheader style={styles.sectionTitle}>Personal Information</List.Subheader>
+                <View style={styles.infoItem}>
+                  <MaterialCommunityIcons name="email" size={24} color={colors.primary} />
+                  <View style={styles.infoContent}>
+                    <Text style={styles.infoLabel}>Email</Text>
+                    <Text style={styles.infoValue}>{profile?.email || 'Not set'}</Text>
+                  </View>
+                </View>
+                <Divider style={styles.divider} />
+                <View style={styles.infoItem}>
+                  <MaterialCommunityIcons name="phone" size={24} color={colors.primary} />
+                  <View style={styles.infoContent}>
+                    <Text style={styles.infoLabel}>Phone</Text>
+                    <Text style={styles.infoValue}>{profile?.phoneNumber || user?.phoneNumber}</Text>
+                  </View>
+                </View>
+                <Divider style={styles.divider} />
+                <View style={styles.infoItem}>
+                  <MaterialCommunityIcons name="calendar" size={24} color={colors.primary} />
+                  <View style={styles.infoContent}>
+                    <Text style={styles.infoLabel}>Member Since</Text>
+                    <Text style={styles.infoValue}>{profile?.createdAt.toLocaleDateString()}</Text>
+                  </View>
+                </View>
               </List.Section>
             </Card.Content>
           </Card>
@@ -168,40 +186,47 @@ export default function ProfileScreen({ navigation }: ProfileScreenProps) {
           <Card style={styles.preferencesCard}>
             <Card.Content>
               <List.Section>
-                <List.Subheader>Preferences</List.Subheader>
-                <List.Item
-                  title="Notifications"
-                  left={props => <List.Icon {...props} icon="bell" />}
-                  right={props => <List.Icon {...props} icon="chevron-right" />}
-                  onPress={() => {}}
-                />
-                <Divider />
-                <List.Item
-                  title="Privacy Settings"
-                  left={props => <List.Icon {...props} icon="shield-account" />}
-                  right={props => <List.Icon {...props} icon="chevron-right" />}
+                <List.Subheader style={styles.sectionTitle}>Preferences</List.Subheader>
+                <TouchableOpacity style={styles.preferenceItem} onPress={() => {}}>
+                  <View style={styles.preferenceLeft}>
+                    <MaterialCommunityIcons name="bell" size={24} color={colors.primary} />
+                    <Text style={styles.preferenceLabel}>Notifications</Text>
+                  </View>
+                  <MaterialCommunityIcons name="chevron-right" size={24} color={colors.textSecondary} />
+                </TouchableOpacity>
+                <Divider style={styles.divider} />
+                <TouchableOpacity 
+                  style={styles.preferenceItem} 
                   onPress={() => navigation.navigate('LocationPrivacy')}
-                />
-                <Divider />
-                <List.Item
-                  title="Language"
-                  description="English"
-                  left={props => <List.Icon {...props} icon="translate" />}
-                  right={props => <List.Icon {...props} icon="chevron-right" />}
-                  onPress={() => {}}
-                />
+                >
+                  <View style={styles.preferenceLeft}>
+                    <MaterialCommunityIcons name="shield-account" size={24} color={colors.primary} />
+                    <Text style={styles.preferenceLabel}>Privacy Settings</Text>
+                  </View>
+                  <MaterialCommunityIcons name="chevron-right" size={24} color={colors.textSecondary} />
+                </TouchableOpacity>
+                <Divider style={styles.divider} />
+                <TouchableOpacity style={styles.preferenceItem} onPress={() => {}}>
+                  <View style={styles.preferenceLeft}>
+                    <MaterialCommunityIcons name="translate" size={24} color={colors.primary} />
+                    <View style={styles.preferenceContent}>
+                      <Text style={styles.preferenceLabel}>Language</Text>
+                      <Text style={styles.preferenceValue}>English</Text>
+                    </View>
+                  </View>
+                  <MaterialCommunityIcons name="chevron-right" size={24} color={colors.textSecondary} />
+                </TouchableOpacity>
               </List.Section>
             </Card.Content>
           </Card>
 
-          <Button
-            mode="outlined"
-            onPress={() => setShowSignOutModal(true)}
+          <TouchableOpacity
             style={styles.signOutButton}
-            textColor={colors.error}
+            onPress={() => setShowSignOutModal(true)}
           >
-            Sign Out
-          </Button>
+            <MaterialCommunityIcons name="logout" size={24} color={colors.error} />
+            <Text style={styles.signOutText}>Sign Out</Text>
+          </TouchableOpacity>
         </View>
       </ScrollView>
 
@@ -294,7 +319,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   header: {
-    height: 250,
+    height: 280,
     position: 'relative',
     overflow: 'hidden',
   },
@@ -328,10 +353,33 @@ const styles = StyleSheet.create({
     left: 30,
     opacity: 0.08,
   },
+  topBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.xl,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  screenTitle: {
+    color: colors.background,
+    fontSize: 18,
+    fontWeight: '600',
+  },
   avatarContainer: {
     alignItems: 'center',
     marginTop: spacing.xl,
+  },
+  avatarWrapper: {
     position: 'relative',
+    marginBottom: spacing.md,
   },
   avatar: {
     backgroundColor: colors.primaryDark,
@@ -370,13 +418,83 @@ const styles = StyleSheet.create({
   },
   infoCard: {
     marginBottom: spacing.lg,
+    borderRadius: 16,
+    ...elevation.small,
   },
   preferencesCard: {
     marginBottom: spacing.lg,
+    borderRadius: 16,
+    ...elevation.small,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.primary,
+    marginBottom: spacing.sm,
+  },
+  infoItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+  },
+  infoContent: {
+    marginLeft: spacing.md,
+    flex: 1,
+  },
+  infoLabel: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    marginBottom: spacing.xs,
+  },
+  infoValue: {
+    fontSize: 16,
+    color: colors.text,
+    fontWeight: '500',
+  },
+  divider: {
+    backgroundColor: colors.surfaceVariant,
+    height: 1,
+  },
+  preferenceItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+  },
+  preferenceLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  preferenceContent: {
+    marginLeft: spacing.md,
+  },
+  preferenceLabel: {
+    fontSize: 16,
+    color: colors.text,
+    marginLeft: spacing.md,
+  },
+  preferenceValue: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    marginTop: spacing.xs,
   },
   signOutButton: {
-    borderColor: colors.error,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: `${colors.error}15`,
+    padding: spacing.md,
+    borderRadius: 12,
     marginTop: spacing.md,
+  },
+  signOutText: {
+    color: colors.error,
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: spacing.sm,
   },
   modalContainer: {
     backgroundColor: colors.background,

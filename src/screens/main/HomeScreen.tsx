@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, FlatList, Alert, ScrollView, RefreshControl, TouchableOpacity } from 'react-native';
+import { View, StyleSheet, FlatList, Alert, ScrollView, RefreshControl, TouchableOpacity, ImageBackground } from 'react-native';
 import { Text, FAB, IconButton, Divider, ActivityIndicator, Button } from 'react-native-paper';
 import { useAuth } from '../../contexts/AuthContext';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -16,6 +16,8 @@ import { StatusBadge } from '../../components/ui/StatusBadge';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { CategoryButton } from '../../components/ui/CategoryButton';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
+import { useNavigation } from '@react-navigation/native';
 
 type HomeScreenProps = {
   navigation: NativeStackNavigationProp<MainStackParamList, 'Home'>;
@@ -134,34 +136,34 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
       onPress={() => navigation.navigate('GroupDetails', { groupId: item.id })}
       style={styles.groupCard}
     >
-      <Card variant="secondary" style={styles.card}>
-        <View style={styles.cardContent}>
-          <View style={styles.cardHeader}>
+      <View style={styles.cardContent}>
+        <View style={styles.cardHeader}>
+          <View style={styles.cardTitleSection}>
             <Text style={styles.groupName}>{item.name}</Text>
-            <Text style={styles.memberCount}>{item.memberCount} members</Text>
+            <View style={styles.memberInfo}>
+              <MaterialCommunityIcons name="account-group" size={16} color={colors.textSecondary} />
+              <Text style={styles.memberCount}>{item.memberCount} members</Text>
+            </View>
           </View>
-          
-          <View style={styles.cardDetails}>
-            <Text style={styles.description}>{item.description}</Text>
+          <StatusBadge status={item.status} />
+        </View>
+        
+        <View style={styles.cardDetails}>
+          <Text style={styles.description} numberOfLines={2}>{item.description}</Text>
+          <View style={styles.cardFooter}>
             <View style={styles.amountContainer}>
-              <Text style={styles.amountLabel}>Target Amount:</Text>
+              <Text style={styles.amountLabel}>Target:</Text>
               <Text style={styles.amount}>₹{item.targetAmount}</Text>
             </View>
             {item.distance && (
-              <Text style={styles.distance}>{formatDistance(item.distance)} away</Text>
+              <View style={styles.distanceContainer}>
+                <MaterialCommunityIcons name="map-marker" size={16} color={colors.textSecondary} />
+                <Text style={styles.distance}>{formatDistance(item.distance)}</Text>
+              </View>
             )}
           </View>
-
-          <View style={styles.cardFooter}>
-            <StatusBadge status={item.status} />
-            <IconButton 
-              icon="chevron-right" 
-              size={24} 
-              iconColor={colors.primary}
-            />
-          </View>
         </View>
-      </Card>
+      </View>
     </TouchableOpacity>
   );
 
@@ -250,112 +252,141 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
+        showsVerticalScrollIndicator={false}
       >
-        <View style={styles.header}>
+        {/* Top Bar */}
+        <View style={styles.topBar}>
+          <View style={styles.logoContainer}>
+            <MaterialCommunityIcons 
+              name="wallet-giftcard" 
+              size={24} 
+              color={colors.primary} 
+            />
+            <Text style={styles.appTitle}>GatherPay</Text>
+          </View>
+          <TouchableOpacity 
+            style={styles.profileButton} 
+            onPress={() => navigation.navigate('Profile')}
+          >
+            <MaterialCommunityIcons 
+              name="account-circle" 
+              size={28} 
+              color={colors.primary} 
+            />
+          </TouchableOpacity>
+        </View>
+
+        {/* Main Header Section */}
+        <View style={styles.headerSection}>
           <LinearGradient
-            colors={[colors.primary, colors.primaryDark]}
+            colors={colors.gradient.purple}
             style={styles.headerGradient}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
           >
-            <View style={styles.headerPattern}>
-              {/* Add decorative circles */}
-              <View style={[styles.patternCircle, styles.circle1]} />
-              <View style={[styles.patternCircle, styles.circle2]} />
-              <View style={[styles.patternCircle, styles.circle3]} />
-            </View>
             <View style={styles.headerContent}>
-              <Text variant="titleMedium" style={styles.greeting}>
-                Welcome back,
-              </Text>
-              <Text variant="headlineSmall" style={styles.name}>
-                {user?.displayName || user?.phoneNumber}
-              </Text>
+              <View style={styles.welcomeContainer}>
+                <Text style={styles.welcomeText}>Welcome back,</Text>
+                <Text style={styles.userName}>
+                  {user?.displayName || user?.phoneNumber}
+                </Text>
+              </View>
+
+              {/* Balance Summary Cards */}
+              <View style={styles.balanceCardsRow}>
+                <View style={styles.balanceCard}>
+                  <View style={styles.balanceHeader}>
+                    <MaterialCommunityIcons name="wallet" size={20} color={colors.background} style={styles.balanceIcon} />
+                    <Text style={styles.balanceTitle}>Wallet Balance</Text>
+                  </View>
+                  <View style={styles.balanceAmount}>
+                    <Text style={styles.currencySymbol}>₹</Text>
+                    <Text style={styles.balanceValue}>{balance}</Text>
+                  </View>
+                  <Text style={styles.balanceSubtext}>Available for group orders</Text>
+                </View>
+
+                <View style={[styles.balanceCard, styles.rewardCard]}>
+                  <View style={styles.balanceHeader}>
+                    <MaterialCommunityIcons name="gift" size={20} color={colors.background} style={styles.balanceIcon} />
+                    <Text style={styles.balanceTitle}>Reward Coins</Text>
+                  </View>
+                  <View style={styles.balanceAmount}>
+                    <Text style={styles.currencySymbol}>₹</Text>
+                    <Text style={styles.balanceValue}>{rewardCoins}</Text>
+                  </View>
+                  <Text style={styles.balanceSubtext}>Earn more by leading groups</Text>
+                </View>
+              </View>
             </View>
           </LinearGradient>
         </View>
 
         <View style={styles.mainContent}>
-          <View style={styles.balanceSection}>
-            <BalanceCard
-              title="Wallet Balance"
-              balance={balance}
-              subtitle="Available for group orders"
-              onPress={() => navigation.navigate('Wallet')}
-            />
-
-            <BalanceCard
-              title="Reward Coins"
-              balance={rewardCoins}
-              variant="secondary"
-              subtitle="Earn more by leading groups"
-              onPress={() => navigation.navigate('Wallet')}
-            />
-          </View>
-
+          {/* Quick Actions */}
           <View style={styles.actionsSection}>
-            <Text variant="titleMedium" style={styles.sectionTitle}>Quick Actions</Text>
-            <ScrollView 
-              horizontal 
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.actionsContainer}
-            >
-              <CategoryButton
-                icon="plus-circle"
-                label="Create Group"
+            <Text style={styles.sectionTitle}>Quick Actions</Text>
+            <View style={styles.actionsRow}>
+              <TouchableOpacity 
+                style={styles.actionButton}
                 onPress={() => navigation.navigate('CreateGroup')}
-                variant="primary"
-              />
-              <CategoryButton
-                icon="wallet"
-                label="My Wallet"
+              >
+                <View style={[styles.actionIcon, { backgroundColor: colors.primary }]}>
+                  <MaterialCommunityIcons name="plus-circle" size={24} color={colors.background} />
+                </View>
+                <Text style={styles.actionLabel}>Create Group</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.actionButton}
                 onPress={() => navigation.navigate('Wallet')}
-                variant="secondary"
-              />
-              <CategoryButton
-                icon="account"
-                label="Profile"
-                onPress={() => navigation.navigate('Profile')}
-                variant="accent"
-              />
-              <CategoryButton
-                icon="map-marker"
-                label="Location"
+              >
+                <View style={[styles.actionIcon, { backgroundColor: colors.secondary }]}>
+                  <MaterialCommunityIcons name="wallet" size={24} color={colors.background} />
+                </View>
+                <Text style={styles.actionLabel}>My Wallet</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.actionButton}
                 onPress={() => navigation.navigate('LocationPrivacy')}
-                variant="secondary"
-              />
-            </ScrollView>
+              >
+                <View style={[styles.actionIcon, { backgroundColor: colors.warning }]}>
+                  <MaterialCommunityIcons name="map-marker" size={24} color={colors.background} />
+                </View>
+                <Text style={styles.actionLabel}>Location</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
+          {/* Groups Section */}
           <View style={styles.groupsSection}>
             <View style={styles.sectionHeader}>
-              <Text variant="titleMedium" style={styles.sectionTitle}>Groups</Text>
+              <Text style={styles.sectionTitle}>Groups</Text>
               <View style={styles.tabContainer}>
                 <TouchableOpacity
                   onPress={() => setSelectedSection('nearby')}
-                  style={[
-                    styles.tab,
-                    selectedSection === 'nearby' && styles.activeTab
-                  ]}
+                  style={[styles.tab, selectedSection === 'nearby' && styles.activeTab]}
                 >
-                  <Text style={[
-                    styles.tabText,
-                    selectedSection === 'nearby' && styles.activeTabText
-                  ]}>
+                  <MaterialCommunityIcons 
+                    name="map-marker-radius" 
+                    size={20} 
+                    color={selectedSection === 'nearby' ? colors.background : colors.textSecondary} 
+                  />
+                  <Text style={[styles.tabText, selectedSection === 'nearby' && styles.activeTabText]}>
                     Nearby
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={() => setSelectedSection('active')}
-                  style={[
-                    styles.tab,
-                    selectedSection === 'active' && styles.activeTab
-                  ]}
+                  style={[styles.tab, selectedSection === 'active' && styles.activeTab]}
                 >
-                  <Text style={[
-                    styles.tabText,
-                    selectedSection === 'active' && styles.activeTabText
-                  ]}>
+                  <MaterialCommunityIcons 
+                    name="account-group" 
+                    size={20} 
+                    color={selectedSection === 'active' ? colors.background : colors.textSecondary} 
+                  />
+                  <Text style={[styles.tabText, selectedSection === 'active' && styles.activeTabText]}>
                     Active
                   </Text>
                 </TouchableOpacity>
@@ -374,47 +405,111 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
-  header: {
-    height: 180,
-    overflow: 'hidden',
+  topBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.xl,
+    paddingBottom: spacing.md,
+    backgroundColor: colors.background,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.surfaceVariant,
+  },
+  logoContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    backgroundColor: `${colors.primary}10`,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: 12,
+  },
+  appTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: colors.primary,
+  },
+  profileButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: `${colors.primary}10`,
+  },
+  headerSection: {
+    marginBottom: spacing.lg,
   },
   headerGradient: {
-    flex: 1,
-    position: 'relative',
-  },
-  headerPattern: {
-    ...StyleSheet.absoluteFillObject,
-    opacity: 0.1,
-  },
-  patternCircle: {
-    position: 'absolute',
-    backgroundColor: colors.background,
-    borderRadius: 9999,
-  },
-  circle1: {
-    width: 200,
-    height: 200,
-    top: -100,
-    right: -50,
-    opacity: 0.1,
-  },
-  circle2: {
-    width: 150,
-    height: 150,
-    top: 50,
-    right: 50,
-    opacity: 0.05,
-  },
-  circle3: {
-    width: 100,
-    height: 100,
-    top: -20,
-    left: 30,
-    opacity: 0.08,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.xl,
   },
   headerContent: {
-    padding: spacing.lg,
-    paddingTop: spacing.xl,
+    paddingHorizontal: spacing.lg,
+  },
+  welcomeContainer: {
+    marginBottom: spacing.lg,
+  },
+  welcomeText: {
+    color: colors.background,
+    fontSize: 14,
+    opacity: 0.9,
+    marginBottom: spacing.xs,
+  },
+  userName: {
+    color: colors.background,
+    fontSize: 24,
+    fontWeight: 'bold',
+  },
+  balanceCardsRow: {
+    flexDirection: 'row',
+    gap: spacing.md,
+  },
+  balanceCard: {
+    flex: 1,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderRadius: 16,
+    padding: spacing.md,
+  },
+  rewardCard: {
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  balanceHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  balanceIcon: {
+    marginRight: spacing.xs,
+    opacity: 0.9,
+  },
+  balanceTitle: {
+    color: colors.background,
+    fontSize: 14,
+    fontWeight: '600',
+    opacity: 0.9,
+  },
+  balanceAmount: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    marginBottom: spacing.xs,
+  },
+  currencySymbol: {
+    color: colors.background,
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginRight: spacing.xs,
+  },
+  balanceValue: {
+    color: colors.background,
+    fontSize: 24,
+    fontWeight: 'bold',
+  },
+  balanceSubtext: {
+    color: colors.background,
+    fontSize: 12,
+    opacity: 0.8,
   },
   mainContent: {
     flex: 1,
@@ -422,64 +517,131 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     marginTop: -24,
-    paddingTop: spacing.lg,
-  },
-  greeting: {
-    color: colors.background,
-    opacity: 0.9,
-  },
-  name: {
-    color: colors.background,
-    fontWeight: 'bold',
-  },
-  balanceSection: {
-    padding: spacing.lg,
-    gap: spacing.md,
+    paddingTop: spacing.xl,
   },
   actionsSection: {
-    paddingVertical: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.xl,
   },
   sectionTitle: {
-    paddingHorizontal: spacing.lg,
-    marginBottom: spacing.md,
-    color: colors.text,
+    fontSize: 18,
     fontWeight: 'bold',
-  },
-  actionsContainer: {
-    paddingHorizontal: spacing.lg,
-    gap: spacing.md,
-    flexDirection: 'row',
-  },
-  card: {
+    color: colors.text,
     marginBottom: spacing.md,
+  },
+  actionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  actionButton: {
+    flex: 1,
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    padding: spacing.md,
+    ...elevation.small,
+  },
+  actionIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: spacing.xs,
+  },
+  actionLabel: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  groupsSection: {
+    flex: 1,
+    backgroundColor: colors.surfaceVariant,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: spacing.lg,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.lg,
+  },
+  tabContainer: {
+    flexDirection: 'row',
+    backgroundColor: colors.surface,
+    borderRadius: 9999,
+    padding: 4,
+    ...elevation.small,
+  },
+  tab: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    gap: spacing.xs,
+  },
+  activeTab: {
+    backgroundColor: colors.primary,
+    borderRadius: 9999,
+  },
+  tabText: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  activeTabText: {
+    color: colors.background,
   },
   groupCard: {
     marginBottom: spacing.md,
+    borderRadius: 20,
+    backgroundColor: colors.surface,
+    ...elevation.small,
   },
   cardContent: {
-    padding: spacing.md,
+    padding: spacing.lg,
   },
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.sm,
+    alignItems: 'flex-start',
+    marginBottom: spacing.md,
+  },
+  cardTitleSection: {
+    flex: 1,
+    marginRight: spacing.md,
   },
   groupName: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
     color: colors.text,
+    marginBottom: spacing.xs,
+  },
+  memberInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
   },
   memberCount: {
-    fontSize: 12,
+    fontSize: 14,
     color: colors.textSecondary,
   },
   cardDetails: {
-    gap: spacing.sm,
+    gap: spacing.md,
   },
   description: {
     color: colors.textSecondary,
     fontSize: 14,
+    lineHeight: 20,
+  },
+  cardFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: spacing.sm,
   },
   amountContainer: {
     flexDirection: 'row',
@@ -495,21 +657,20 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 16,
   },
+  distanceContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
   distance: {
     color: colors.textSecondary,
     fontSize: 12,
-  },
-  cardFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: spacing.md,
   },
   centered: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: spacing.lg,
+    padding: spacing.xl,
   },
   errorText: {
     textAlign: 'center',
@@ -518,22 +679,36 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     marginTop: spacing.md,
+    color: colors.text,
+    fontSize: 16,
+  },
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.xl,
+    minHeight: 300,
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: colors.text,
+    marginTop: spacing.lg,
+    marginBottom: spacing.xs,
   },
   subText: {
+    fontSize: 16,
+    color: colors.textSecondary,
+    textAlign: 'center',
     marginTop: spacing.sm,
-    color: colors.disabled,
+    marginBottom: spacing.lg,
+  },
+  emptyButton: {
+    borderRadius: 12,
+    paddingHorizontal: spacing.xl,
   },
   retryButton: {
     marginTop: spacing.md,
-  },
-  fab: {
-    position: 'absolute',
-    margin: spacing.md,
-    right: 0,
-    bottom: 0,
-  },
-  section: {
-    marginBottom: spacing.lg,
   },
   groupsContainer: {
     flex: 1,
@@ -541,60 +716,5 @@ const styles = StyleSheet.create({
   },
   groupsList: {
     padding: spacing.md,
-  },
-  emptyState: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: spacing.xl,
-  },
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: colors.text,
-    marginTop: spacing.lg,
-    marginBottom: spacing.xs,
-  },
-  emptyButton: {
-    marginTop: spacing.lg,
-  },
-  tabContainer: {
-    flexDirection: 'row',
-    backgroundColor: colors.surface,
-    borderRadius: 9999,
-    padding: 4,
-    ...elevation.small,
-  },
-  tab: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    color: colors.textSecondary,
-  },
-  activeTab: {
-    backgroundColor: colors.primary,
-    color: colors.background,
-    borderRadius: 9999,
-  },
-  tabText: {
-    color: colors.textSecondary,
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  activeTabText: {
-    color: colors.background,
-  },
-  groupsSection: {
-    flex: 1,
-    backgroundColor: colors.surfaceVariant,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: spacing.lg,
-    ...elevation.small,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.lg,
   },
 }); 

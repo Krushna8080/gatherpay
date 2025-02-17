@@ -1,33 +1,38 @@
 import { MD3LightTheme as DefaultTheme } from 'react-native-paper';
 
 export const colors = {
-  primary: '#00C853', // Main green color
-  primaryDark: '#00A040',
-  primaryLight: '#5EFF82',
-  secondary: '#1976D2', // Blue color for secondary actions
-  secondaryDark: '#004BA0',
-  secondaryLight: '#63A4FF',
-  error: '#FF3D00',
-  success: '#00E676',
-  warning: '#FFC400',
+  primary: '#6C5CE7', // Main purple color
+  primaryDark: '#5849BE',
+  primaryLight: '#A8A4E3',
+  secondary: '#00B8D4', // Bright blue color
+  secondaryDark: '#0091A8',
+  secondaryLight: '#64FFDA',
+  accent: '#FF7675', // Coral accent
+  error: '#FF4757',
+  success: '#2ECC71',
+  warning: '#FFA502',
   background: '#FFFFFF',
   surface: '#FFFFFF',
-  surfaceVariant: '#F5F5F5',
-  text: '#1A1A1A',
-  textSecondary: '#757575',
-  disabled: '#BDBDBD',
-  placeholder: '#9E9E9E',
+  surfaceVariant: '#F8F9FE',
+  text: '#2D3436',
+  textSecondary: '#636E72',
+  disabled: '#B2BEC3',
+  placeholder: '#95A5A6',
   backdrop: 'rgba(0, 0, 0, 0.5)',
-  notification: '#FF9800',
+  notification: '#FF9F43',
   card: {
-    primary: '#00C853',
-    secondary: '#1976D2',
-    accent: '#FFC400',
+    primary: '#6C5CE7',
+    secondary: '#00B8D4',
+    accent: '#FF7675',
   },
   gradient: {
-    primary: ['#00C853', '#00A040'],
-    secondary: ['#1976D2', '#004BA0'],
-    success: ['#00E676', '#00C853'],
+    primary: ['#6C5CE7', '#5849BE'],
+    secondary: ['#00B8D4', '#0091A8'],
+    success: ['#2ECC71', '#27AE60'],
+    accent: ['#FF7675', '#D63031'],
+    purple: ['#6C5CE7', '#8E44AD'],
+    blue: ['#00B8D4', '#0984E3'],
+    orange: ['#FF9F43', '#EE5A24']
   }
 };
 
@@ -56,7 +61,7 @@ export const elevation = {
       width: 0,
       height: 2,
     },
-    shadowOpacity: 0.25,
+    shadowOpacity: 0.15,
     shadowRadius: 3.84,
     elevation: 2,
   },
@@ -66,7 +71,7 @@ export const elevation = {
       width: 0,
       height: 4,
     },
-    shadowOpacity: 0.30,
+    shadowOpacity: 0.20,
     shadowRadius: 4.65,
     elevation: 4,
   },
@@ -76,7 +81,7 @@ export const elevation = {
       width: 0,
       height: 6,
     },
-    shadowOpacity: 0.37,
+    shadowOpacity: 0.25,
     shadowRadius: 7.49,
     elevation: 8,
   },

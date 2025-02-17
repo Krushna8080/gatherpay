@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, StyleSheet, ScrollView, Alert, TouchableOpacity, Animated } from 'react-native';
+import { View, StyleSheet, ScrollView, Alert, TouchableOpacity, Animated, LayoutAnimation, Platform, UIManager, Easing } from 'react-native';
 import { Text, Button, Divider, Portal, Modal, List, ActivityIndicator, IconButton } from 'react-native-paper';
 import { useAuth } from '../../contexts/AuthContext';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -71,6 +71,11 @@ interface Group {
   previousOrders?: Order[];
 }
 
+// Enable LayoutAnimation for Android
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
 export default function GroupDetailsScreen({
   navigation,
   route,
@@ -91,9 +96,13 @@ export default function GroupDetailsScreen({
   const { balance, deductMoney, addRewardCoins } = useWallet();
   const [userLocation, setUserLocation] = useState<Location.LocationObject | null>(null);
   const [showChat, setShowChat] = useState(true);
-  const [contentHeight] = useState(new Animated.Value(1));
   const [showActions, setShowActions] = useState(true);
-  const [actionsHeight] = useState(new Animated.Value(1));
+  const [sectionOrder, setSectionOrder] = useState<'chatFirst' | 'actionsFirst'>('chatFirst');
+  
+  // Enhanced animation values
+  const [chatScale] = useState(new Animated.Value(1));
+  const [actionsScale] = useState(new Animated.Value(1));
+  const [swapRotation] = useState(new Animated.Value(0));
 
   useEffect(() => {
     const unsubscribe = subscribeToGroup();
@@ -505,39 +514,41 @@ export default function GroupDetailsScreen({
     }
   };
 
-  const renderBubble = (props: any) => {
-    return (
-      <Bubble
-        {...props}
-        wrapperStyle={{
-          right: {
-            backgroundColor: colors.primary,
-          },
-          left: {
-            backgroundColor: colors.surfaceVariant,
-          },
-        }}
-        textStyle={{
-          right: {
-            color: colors.background,
-          },
-          left: {
-            color: colors.text,
-          },
-        }}
-      />
-    );
-  };
+  const renderBubble = (props: any) => (
+    <Bubble
+      {...props}
+      wrapperStyle={{
+        right: {
+          backgroundColor: colors.primary,
+          borderRadius: 16,
+          padding: 2,
+        },
+        left: {
+          backgroundColor: colors.surfaceVariant,
+          borderRadius: 16,
+          padding: 2,
+        },
+      }}
+      textStyle={{
+        right: {
+          color: colors.background,
+          fontSize: 15,
+        },
+        left: {
+          color: colors.text,
+          fontSize: 15,
+        },
+      }}
+    />
+  );
 
-  const renderSend = (props: any) => {
-    return (
-      <Send {...props}>
-        <View style={styles.sendButton}>
-          <MaterialCommunityIcons name="send" size={24} color={colors.primary} />
-        </View>
-      </Send>
-    );
-  };
+  const renderSend = (props: any) => (
+    <Send {...props}>
+      <View style={styles.sendButton}>
+        <MaterialCommunityIcons name="send" size={20} color={colors.background} />
+      </View>
+    </Send>
+  );
 
   const renderOrderModal = () => {
     if (!group) return null;
@@ -585,25 +596,238 @@ export default function GroupDetailsScreen({
     );
   };
 
-  const toggleSections = () => {
-    // Animate both sections
-    Animated.parallel([
-      Animated.timing(contentHeight, {
-        toValue: showChat ? 0 : 1,
-        duration: 300,
-        useNativeDriver: false,
+  const animateSection = (section: 'chat' | 'actions', show: boolean) => {
+    const scale = section === 'chat' ? chatScale : actionsScale;
+    Animated.sequence([
+      Animated.timing(scale, {
+        toValue: show ? 0.98 : 1,
+        duration: 100,
+        useNativeDriver: true,
+        easing: Easing.out(Easing.ease),
       }),
-      Animated.timing(actionsHeight, {
-        toValue: showActions ? 0 : 1,
-        duration: 300,
-        useNativeDriver: false,
-      })
+      Animated.timing(scale, {
+        toValue: 1,
+        duration: 150,
+        useNativeDriver: true,
+        easing: Easing.inOut(Easing.ease),
+      }),
     ]).start();
-
-    // Toggle visibility states
-    setShowChat(!showChat);
-    setShowActions(!showActions);
   };
+
+  const toggleSection = (section: 'chat' | 'actions') => {
+    LayoutAnimation.configureNext({
+      duration: 300,
+      create: {
+        type: LayoutAnimation.Types.easeInEaseOut,
+        property: LayoutAnimation.Properties.opacity,
+      },
+      update: {
+        type: LayoutAnimation.Types.easeInEaseOut,
+      },
+      delete: {
+        type: LayoutAnimation.Types.easeInEaseOut,
+        property: LayoutAnimation.Properties.opacity,
+      },
+    });
+
+    if (section === 'chat') {
+      setShowChat(!showChat);
+      animateSection('chat', !showChat);
+    } else {
+      setShowActions(!showActions);
+      animateSection('actions', !showActions);
+    }
+  };
+
+  const swapSections = () => {
+    Animated.timing(swapRotation, {
+      toValue: 1,
+      duration: 300,
+      useNativeDriver: true,
+      easing: Easing.inOut(Easing.ease),
+    }).start(() => {
+      swapRotation.setValue(0);
+    });
+
+    LayoutAnimation.configureNext({
+      duration: 300,
+      create: {
+        type: LayoutAnimation.Types.easeInEaseOut,
+        property: LayoutAnimation.Properties.opacity,
+      },
+      update: {
+        type: LayoutAnimation.Types.easeInEaseOut,
+      },
+      delete: {
+        type: LayoutAnimation.Types.easeInEaseOut,
+        property: LayoutAnimation.Properties.opacity,
+      },
+    });
+    
+    setSectionOrder(prev => prev === 'chatFirst' ? 'actionsFirst' : 'chatFirst');
+  };
+
+  const renderSectionHeader = (title: string, isVisible: boolean, onToggle: () => void, icon: 'message-text' | 'format-list-bulleted') => (
+    <Animated.View style={[styles.sectionHeader, { transform: [{ scale: isVisible ? chatScale : actionsScale }] }]}>
+      <TouchableOpacity 
+        style={styles.sectionHeaderContent} 
+        onPress={onToggle}
+        activeOpacity={0.7}
+      >
+        <View style={styles.headerLeft}>
+          <MaterialCommunityIcons name={icon} size={24} color={colors.primary} style={styles.headerIcon} />
+          <Text style={styles.sectionTitle}>{title}</Text>
+        </View>
+        <View style={styles.headerControls}>
+          <View style={[styles.expandIndicator, isVisible && styles.expandIndicatorActive]}>
+            <MaterialCommunityIcons
+              name={isVisible ? 'chevron-up' : 'chevron-down'}
+              size={24}
+              color={isVisible ? colors.primary : colors.text}
+            />
+          </View>
+        </View>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+
+  const renderGroupInfo = () => (
+    <Card style={styles.groupInfoCard}>
+      <View style={styles.cardHeader}>
+        <StatusBadge status={group!.status} />
+        {isLeader && (
+          <MaterialCommunityIcons 
+            name="crown" 
+            size={24} 
+            color={colors.primary} 
+          />
+        )}
+      </View>
+      <Text style={styles.description}>{group!.description}</Text>
+      <Divider style={styles.divider} />
+      <View style={styles.actionButtons}>
+        {group!.status === 'open' && !group!.members[user!.uid] && (
+          <Button
+            mode="contained"
+            onPress={handleJoinGroup}
+            style={styles.actionButton}
+          >
+            Join Group
+          </Button>
+        )}
+        {group!.members[user!.uid] && !isLeader && (
+          <Button
+            mode="outlined"
+            onPress={handleLeaveGroup}
+            style={styles.actionButton}
+            textColor={colors.error}
+          >
+            Leave Group
+          </Button>
+        )}
+        {isLeader && group!.status === 'open' && (
+          <View style={styles.leaderActions}>
+            <Button
+              mode="contained"
+              onPress={handleStartOrder}
+              style={[styles.actionButton, styles.startOrderButton]}
+            >
+              Start Order
+            </Button>
+            <Button
+              mode="outlined"
+              onPress={handleCloseGroup}
+              style={[styles.actionButton, styles.closeGroupButton]}
+              textColor={colors.warning}
+            >
+              Close Group
+            </Button>
+          </View>
+        )}
+      </View>
+    </Card>
+  );
+
+  const renderGroupChat = () => (
+    <View style={styles.chatSection}>
+      <GiftedChat
+        messages={messages}
+        onSend={messages => onSend(messages)}
+        user={{ _id: user?.uid || '', name: user?.displayName || '' }}
+        renderBubble={renderBubble}
+        renderSend={renderSend}
+        alwaysShowSend
+        minInputToolbarHeight={60}
+        maxComposerHeight={100}
+        renderAvatar={null}
+        renderTime={(props) => (
+          <View style={styles.messageTime}>
+            <Text style={styles.timeText}>
+              {new Date(props.currentMessage?.createdAt || Date.now()).toLocaleTimeString([], { 
+                hour: '2-digit', 
+                minute: '2-digit' 
+              })}
+            </Text>
+          </View>
+        )}
+        listViewProps={{
+          style: styles.chatList,
+          contentContainerStyle: styles.chatListContent,
+          showsVerticalScrollIndicator: false,
+        }}
+      />
+    </View>
+  );
+
+  const renderGroupActions = () => (
+    <View style={styles.actionsSection}>
+      <Card style={styles.actionCard}>
+        <List.Section>
+          <List.Subheader style={styles.actionSubheader}>Group Actions</List.Subheader>
+          
+          {/* Members Section */}
+          <List.Item
+            title="Members"
+            description={`${group!.memberCount}/${MAX_GROUP_MEMBERS} members`}
+            left={props => <List.Icon {...props} icon="account-group" />}
+            onPress={() => setShowMembersModal(true)}
+            style={styles.actionItem}
+          />
+
+          {/* Order Status */}
+          {group!.status !== 'open' && (
+            <List.Item
+              title="Current Order"
+              description={`Status: ${group!.status}`}
+              left={props => <List.Icon {...props} icon="shopping" />}
+              onPress={() => setShowOrderModal(true)}
+              style={styles.actionItem}
+            />
+          )}
+
+          {/* Location */}
+          <List.Item
+            title="Group Location"
+            description="View on map"
+            left={props => <List.Icon {...props} icon="map-marker" />}
+            onPress={handleShareLocation}
+            style={styles.actionItem}
+          />
+
+          {/* Additional Actions */}
+          {isLeader && (
+            <List.Item
+              title="Group Settings"
+              description="Manage group preferences"
+              left={props => <List.Icon {...props} icon="cog" />}
+              onPress={() => {/* Implement settings */}}
+              style={styles.actionItem}
+            />
+          )}
+        </List.Section>
+      </Card>
+    </View>
+  );
 
   if (loading) {
     return (
@@ -665,121 +889,40 @@ export default function GroupDetailsScreen({
       </View>
 
       <View style={styles.content}>
-        <Animated.View 
-          style={[
-            styles.actionsContainer,
-            {
-              maxHeight: actionsHeight.interpolate({
-                inputRange: [0, 1],
-                outputRange: ['0%', '50%']
-              })
-            }
-          ]}
-        >
-          {showActions && (
-            <ScrollView style={styles.scrollContent}>
-              <Card variant="secondary" style={styles.infoCard}>
-                <View style={styles.cardHeader}>
-                  <StatusBadge status={group.status} />
-                  {isLeader && (
-                    <MaterialCommunityIcons 
-                      name="crown" 
-                      size={24} 
-                      color={colors.primary} 
-                    />
-                  )}
-                </View>
-                <Text style={styles.description}>{group.description}</Text>
-                <Divider style={styles.divider} />
-                <View style={styles.actionButtons}>
-                  {group.status === 'open' && !group.members[user!.uid] && (
-                    <Button
-                      mode="contained"
-                      onPress={handleJoinGroup}
-                      style={styles.actionButton}
-                    >
-                      Join Group
-                    </Button>
-                  )}
-                  {group.members[user!.uid] && !isLeader && (
-                    <Button
-                      mode="outlined"
-                      onPress={handleLeaveGroup}
-                      style={styles.actionButton}
-                      textColor={colors.error}
-                    >
-                      Leave Group
-                    </Button>
-                  )}
-                  {isLeader && group.status === 'open' && (
-                    <View style={styles.leaderActions}>
-                      <Button
-                        mode="contained"
-                        onPress={handleStartOrder}
-                        style={[styles.actionButton, styles.startOrderButton]}
-                      >
-                        Start Order
-                      </Button>
-                      <Button
-                        mode="outlined"
-                        onPress={handleCloseGroup}
-                        style={[styles.actionButton, styles.closeGroupButton]}
-                        textColor={colors.warning}
-                      >
-                        Close Group
-                      </Button>
-                    </View>
-                  )}
-                </View>
-              </Card>
-            </ScrollView>
-          )}
-        </Animated.View>
-
-        <View style={styles.toggleContainer}>
-          <Button 
-            mode="contained"
-            onPress={toggleSections}
-            icon={showChat ? "message-text" : "format-list-bulleted"}
-            style={styles.toggleButton}
+        {renderGroupInfo()}
+        
+        <View style={styles.tabContainer}>
+          <TouchableOpacity 
+            style={[styles.tab, sectionOrder === 'chatFirst' && styles.activeTab]}
+            onPress={() => setSectionOrder('chatFirst')}
           >
-            {showChat ? "Show Actions" : "Show Chat"}
-          </Button>
+            <MaterialCommunityIcons 
+              name="message-text" 
+              size={24} 
+              color={sectionOrder === 'chatFirst' ? colors.primary : colors.text} 
+            />
+            <Text style={[styles.tabText, sectionOrder === 'chatFirst' && styles.activeTabText]}>
+              Chat
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.tab, sectionOrder === 'actionsFirst' && styles.activeTab]}
+            onPress={() => setSectionOrder('actionsFirst')}
+          >
+            <MaterialCommunityIcons 
+              name="format-list-bulleted" 
+              size={24} 
+              color={sectionOrder === 'actionsFirst' ? colors.primary : colors.text} 
+            />
+            <Text style={[styles.tabText, sectionOrder === 'actionsFirst' && styles.activeTabText]}>
+              Actions
+            </Text>
+          </TouchableOpacity>
         </View>
 
-        <Animated.View 
-          style={[
-            styles.chatContainer,
-            {
-              maxHeight: contentHeight.interpolate({
-                inputRange: [0, 1],
-                outputRange: ['0%', '50%']
-              })
-            }
-          ]}
-        >
-          {showChat && (
-            <GiftedChat
-              messages={messages}
-              onSend={onSend}
-              user={{
-                _id: user!.uid,
-                name: user!.phoneNumber || 'Unknown User',
-              }}
-              renderBubble={renderBubble}
-              renderSend={renderSend}
-              renderAvatar={null}
-              alwaysShowSend
-              scrollToBottom
-              infiniteScroll
-              minInputToolbarHeight={60}
-              listViewProps={{
-                style: styles.chatList,
-                contentContainerStyle: styles.chatListContent,
-              }}
-            />
-          )}
-        </Animated.View>
+        <View style={styles.sectionContainer}>
+          {sectionOrder === 'chatFirst' ? renderGroupChat() : renderGroupActions()}
+        </View>
       </View>
 
       <Portal>
@@ -845,16 +988,18 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   header: {
-    height: 200,
+    height: 180,
     overflow: 'hidden',
+    backgroundColor: colors.primary,
   },
   headerGradient: {
     flex: 1,
     position: 'relative',
+    backgroundColor: 'transparent',
   },
   headerPattern: {
     ...StyleSheet.absoluteFillObject,
-    opacity: 0.1,
+    opacity: 0.15,
   },
   patternCircle: {
     position: 'absolute',
@@ -866,21 +1011,21 @@ const styles = StyleSheet.create({
     height: 200,
     top: -100,
     right: -50,
-    opacity: 0.1,
+    opacity: 0.15,
   },
   circle2: {
     width: 150,
     height: 150,
     top: 50,
     right: 50,
-    opacity: 0.05,
+    opacity: 0.1,
   },
   circle3: {
     width: 100,
     height: 100,
     top: -20,
     left: 30,
-    opacity: 0.08,
+    opacity: 0.12,
   },
   headerContent: {
     padding: spacing.lg,
@@ -889,157 +1034,81 @@ const styles = StyleSheet.create({
   groupName: {
     color: colors.background,
     fontWeight: 'bold',
-    marginBottom: spacing.md,
+    fontSize: 28,
+    marginBottom: spacing.sm,
+    textShadowColor: 'rgba(0,0,0,0.2)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   headerStats: {
     flexDirection: 'row',
     justifyContent: 'space-around',
     marginTop: spacing.md,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 12,
+    padding: spacing.sm,
   },
   statItem: {
     alignItems: 'center',
+    paddingHorizontal: spacing.md,
   },
   statValue: {
     color: colors.background,
-    fontSize: 20,
+    fontSize: 24,
     fontWeight: 'bold',
+    textShadowColor: 'rgba(0,0,0,0.2)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   statLabel: {
     color: colors.background,
-    opacity: 0.8,
+    opacity: 0.9,
     fontSize: 14,
+    marginTop: spacing.xs,
+    fontWeight: '500',
   },
   content: {
     flex: 1,
     backgroundColor: colors.background,
-    marginTop: -24,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    marginTop: -20,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: spacing.md,
   },
-  scrollContent: {
-    padding: spacing.lg,
-  },
-  infoCard: {
-    marginBottom: spacing.lg,
+  groupInfoCard: {
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.md,
+    borderRadius: 16,
+    backgroundColor: colors.surface,
+    ...elevation.medium,
   },
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: spacing.md,
+    padding: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.surfaceVariant,
   },
   description: {
     fontSize: 16,
     color: colors.text,
     marginBottom: spacing.md,
+    padding: spacing.md,
+    lineHeight: 24,
   },
   divider: {
-    marginVertical: spacing.md,
+    marginVertical: spacing.sm,
+    backgroundColor: colors.surfaceVariant,
   },
   actionButtons: {
+    padding: spacing.md,
     gap: spacing.sm,
   },
   actionButton: {
     marginVertical: spacing.xs,
-  },
-  membersCard: {
-    marginBottom: spacing.lg,
-  },
-  membersPreview: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: spacing.md,
-  },
-  memberAvatars: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  memberAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: colors.background,
-  },
-  moreAvatar: {
-    backgroundColor: colors.surfaceVariant,
-  },
-  avatarText: {
-    color: colors.background,
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  chatContainer: {
-    flex: 1,
-    borderTopWidth: 1,
-    borderTopColor: colors.surfaceVariant,
-    backgroundColor: colors.surface,
-  },
-  sendButton: {
-    marginRight: spacing.md,
-    marginBottom: spacing.md,
-  },
-  modal: {
-    backgroundColor: colors.surface,
-    margin: spacing.lg,
-    borderRadius: 16,
-    maxHeight: '80%',
-    ...elevation.medium,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: spacing.lg,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.surfaceVariant,
-  },
-  modalTitle: {
-    color: colors.text,
-    fontWeight: 'bold',
-  },
-  closeButton: {
-    padding: spacing.xs,
-  },
-  membersList: {
-    padding: spacing.md,
-  },
-  memberListItem: {
-    paddingVertical: spacing.sm,
-  },
-  memberListAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  centered: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    marginTop: spacing.md,
-    color: colors.text,
-  },
-  orderContent: {
-    padding: spacing.md,
-  },
-  uploadSection: {
-    marginTop: spacing.md,
-  },
-  uploadButton: {
-    marginTop: spacing.sm,
-  },
-  sectionTitle: {
-    color: colors.text,
-    fontWeight: 'bold',
+    borderRadius: 8,
   },
   leaderActions: {
     flexDirection: 'row',
@@ -1048,41 +1117,251 @@ const styles = StyleSheet.create({
   },
   startOrderButton: {
     flex: 1,
+    backgroundColor: colors.primary,
   },
   closeGroupButton: {
     flex: 1,
+    borderColor: colors.error,
   },
-  chatToggleContainer: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    borderTopWidth: 1,
-    borderTopColor: colors.surfaceVariant,
+  tabContainer: {
+    flexDirection: 'row',
     backgroundColor: colors.surface,
+    borderRadius: 12,
+    margin: spacing.md,
+    padding: spacing.xs,
+    ...elevation.small,
   },
-  toggleButton: {
-    borderRadius: 20,
+  tab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.sm,
+    gap: spacing.xs,
+    borderRadius: 8,
+  },
+  activeTab: {
+    backgroundColor: `${colors.primary}15`,
+  },
+  tabText: {
+    fontSize: 16,
+    color: colors.text,
+    marginLeft: spacing.xs,
+    fontWeight: '500',
+  },
+  activeTabText: {
+    color: colors.primary,
+    fontWeight: '600',
+  },
+  sectionContainer: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  chatSection: {
+    flex: 1,
+    backgroundColor: colors.background,
+    borderRadius: 16,
+    margin: spacing.md,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: colors.surfaceVariant,
+    ...elevation.medium,
   },
   chatList: {
     backgroundColor: colors.background,
   },
   chatListContent: {
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.sm,
+    padding: spacing.md,
   },
-  actionsContainer: {
+  messageTime: {
+    marginBottom: spacing.xs,
+    alignItems: 'center',
+  },
+  timeText: {
+    fontSize: 12,
+    color: colors.text,
+    opacity: 0.7,
+  },
+  actionsSection: {
     flex: 1,
-    backgroundColor: colors.surface,
-    borderTopWidth: 1,
-    borderTopColor: colors.surfaceVariant,
+    padding: spacing.md,
   },
-  toggleContainer: {
-    paddingHorizontal: spacing.lg,
+  actionCard: {
+    borderRadius: 16,
+    backgroundColor: colors.surface,
+    ...elevation.medium,
+    overflow: 'hidden',
+  },
+  actionSubheader: {
+    color: colors.primary,
+    fontSize: 18,
+    fontWeight: '600',
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.sm,
+    backgroundColor: colors.surface,
+  },
+  actionItem: {
     paddingVertical: spacing.sm,
-    borderTopWidth: 1,
-    borderTopColor: colors.surfaceVariant,
     backgroundColor: colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.surfaceVariant,
   },
-  toggleButton: {
+  modal: {
+    backgroundColor: colors.surface,
+    margin: spacing.lg,
     borderRadius: 20,
+    maxHeight: '80%',
+    ...elevation.medium,
+    overflow: 'hidden',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: spacing.lg,
+    backgroundColor: colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.surfaceVariant,
+  },
+  modalTitle: {
+    color: colors.text,
+    fontWeight: 'bold',
+    fontSize: 20,
+  },
+  closeButton: {
+    padding: spacing.xs,
+    borderRadius: 20,
+    backgroundColor: colors.surfaceVariant,
+  },
+  membersList: {
+    padding: spacing.md,
+  },
+  memberListItem: {
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.surfaceVariant,
+  },
+  memberListAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    ...elevation.small,
+  },
+  avatarText: {
+    color: colors.background,
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  sendButton: {
+    marginRight: spacing.md,
+    marginBottom: spacing.md,
+    backgroundColor: colors.primary,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    ...elevation.small,
+  },
+  centered: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: colors.background,
+  },
+  loadingText: {
+    marginTop: spacing.md,
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  orderContent: {
+    padding: spacing.md,
+  },
+  uploadSection: {
+    marginTop: spacing.md,
+    padding: spacing.md,
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    ...elevation.small,
+  },
+  uploadButton: {
+    marginTop: spacing.sm,
+    borderColor: colors.primary,
+  },
+  sectionHeader: {
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    marginHorizontal: spacing.md,
+    marginVertical: spacing.sm,
+    ...elevation.medium,
+    borderWidth: 1,
+    borderColor: colors.surfaceVariant,
+  },
+  sectionHeaderContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: spacing.md,
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  headerIcon: {
+    marginRight: spacing.sm,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  headerControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  expandIndicator: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: colors.surfaceVariant,
+    transform: [{ rotate: '0deg' }],
+  },
+  expandIndicatorActive: {
+    backgroundColor: colors.surfaceVariant,
+    transform: [{ rotate: '180deg' }],
+  },
+  swapButton: {
+    marginVertical: spacing.md,
+    marginHorizontal: spacing.md,
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    ...elevation.small,
+    borderWidth: 1,
+    borderColor: colors.surfaceVariant,
+    overflow: 'hidden',
+  },
+  swapButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.md,
+    gap: spacing.sm,
+  },
+  swapButtonText: {
+    color: colors.primary,
+    fontWeight: '600',
+    fontSize: 16,
+  },
+  scrollView: {
+    padding: spacing.lg,
   },
 }); 

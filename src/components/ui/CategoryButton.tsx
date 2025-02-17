@@ -1,7 +1,6 @@
 import React from 'react';
-import { StyleSheet, TouchableOpacity, ViewStyle, Platform, View } from 'react-native';
+import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Text } from 'react-native-paper';
-import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { colors, spacing, elevation } from '../../theme';
 
@@ -10,87 +9,73 @@ interface CategoryButtonProps {
   label: string;
   onPress: () => void;
   variant?: 'primary' | 'secondary' | 'accent';
-  style?: ViewStyle;
-  disabled?: boolean;
+  style?: any;
 }
 
-export function CategoryButton({
-  icon,
-  label,
-  onPress,
+export function CategoryButton({ 
+  icon, 
+  label, 
+  onPress, 
   variant = 'primary',
-  style,
-  disabled = false,
+  style
 }: CategoryButtonProps) {
-  const gradientColors = colors.gradient[variant] || colors.gradient.primary;
-
-  // For web, use a regular View with backgroundColor if LinearGradient is not supported
-  if (Platform.OS === 'web') {
-    return (
-      <TouchableOpacity
-        onPress={onPress}
-        disabled={disabled}
-        style={[styles.container, style]}
-        activeOpacity={0.8}
-      >
-        <View style={[styles.gradient, { backgroundColor: gradientColors[0] }]}>
-          <MaterialCommunityIcons
-            name={icon}
-            size={24}
-            color={colors.background}
-            style={styles.icon}
-          />
-          <Text style={styles.label}>{label}</Text>
-        </View>
-      </TouchableOpacity>
-    );
-  }
+  const getBackgroundColor = () => {
+    switch (variant) {
+      case 'primary':
+        return colors.primary;
+      case 'secondary':
+        return colors.secondary;
+      case 'accent':
+        return colors.warning;
+      default:
+        return colors.primary;
+    }
+  };
 
   return (
-    <TouchableOpacity
+    <TouchableOpacity 
       onPress={onPress}
-      disabled={disabled}
       style={[styles.container, style]}
-      activeOpacity={0.8}
+      activeOpacity={0.9}
     >
-      <LinearGradient
-        colors={gradientColors}
-        style={styles.gradient}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-      >
-        <MaterialCommunityIcons
-          name={icon}
-          size={24}
+      <View style={[
+        styles.iconContainer,
+        { backgroundColor: getBackgroundColor() }
+      ]}>
+        <MaterialCommunityIcons 
+          name={icon} 
+          size={24} 
           color={colors.background}
-          style={styles.icon}
         />
-        <Text style={styles.label}>{label}</Text>
-      </LinearGradient>
+      </View>
+      <Text style={styles.label} numberOfLines={1}>
+        {label}
+      </Text>
     </TouchableOpacity>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
     borderRadius: 16,
-    overflow: 'hidden',
+    padding: spacing.sm,
     ...elevation.small,
   },
-  gradient: {
-    padding: spacing.md,
-    alignItems: 'center',
+  iconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
     justifyContent: 'center',
-    minWidth: 100,
-    minHeight: 100,
-  },
-  icon: {
+    alignItems: 'center',
     marginBottom: spacing.xs,
   },
   label: {
-    color: colors.background,
-    fontSize: 12,
+    color: colors.text,
+    fontSize: 13,
     fontWeight: '600',
     textAlign: 'center',
+    marginTop: spacing.xs,
   },
 }); 
