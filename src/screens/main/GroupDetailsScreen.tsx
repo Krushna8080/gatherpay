@@ -6,7 +6,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { MainStackParamList } from '../../navigation/MainNavigator';
 import { colors, spacing, elevation } from '../../theme';
-import { doc, getDoc, updateDoc, collection, addDoc, onSnapshot, deleteDoc, arrayUnion, arrayRemove, serverTimestamp, query, orderBy, getDocs, writeBatch } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, collection, addDoc, onSnapshot, deleteDoc, arrayUnion, arrayRemove, serverTimestamp, query, orderBy, getDocs, writeBatch, increment } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { GiftedChat, IMessage, Bubble, Send } from 'react-native-gifted-chat';
 import { useWallet } from '../../contexts/WalletContext';
@@ -104,6 +104,9 @@ export default function GroupDetailsScreen({
   const [actionsScale] = useState(new Animated.Value(1));
   const [swapRotation] = useState(new Animated.Value(0));
 
+  // Add this state near the other state declarations
+  const [showLeaveDialog, setShowLeaveDialog] = useState(false);
+
   useEffect(() => {
     const unsubscribe = subscribeToGroup();
     const unsubscribeMessages = subscribeToMessages();
@@ -188,145 +191,124 @@ export default function GroupDetailsScreen({
   };
 
   const handleJoinGroup = async () => {
-    if (!group || !user) return;
+    console.log('handleJoinGroup called', { 
+      groupId,
+      userId: user?.uid,
+      groupStatus: group?.status,
+      currentMemberCount: group?.memberCount
+    });
+
+    if (!group || !user) {
+      console.log('No group or user found', { group, user });
+      Alert.alert('Error', 'Unable to join group. Please try again later.');
+      return;
+    }
 
     if (group.memberCount >= MAX_GROUP_MEMBERS) {
-      Alert.alert('Error', 'Group is full');
+      console.log('Group is full', { memberCount: group.memberCount });
+      Alert.alert('Error', 'This group is already full');
       return;
     }
 
     if (group.status !== 'open') {
-      Alert.alert('Error', 'Group is no longer accepting new members');
+      console.log('Group is not open', { status: group.status });
+      Alert.alert('Error', 'This group is no longer accepting new members');
+      return;
+    }
+
+    if (group.members[user.uid]) {
+      console.log('User is already a member', { userId: user.uid });
+      Alert.alert('Error', 'You are already a member of this group');
       return;
     }
 
     try {
+      console.log('Attempting to join group', { 
+        groupId, 
+        userId: user.uid,
+        currentMembers: Object.keys(group.members).length 
+      });
+      
       const groupRef = doc(db, 'groups', groupId);
       const updatedMembers = { ...group.members, [user.uid]: true };
+      
       await updateDoc(groupRef, {
         members: updatedMembers,
         memberCount: group.memberCount + 1,
         lastUpdated: serverTimestamp(),
       });
+
+      console.log('Successfully joined group');
+      
+      // Add system message about new member
+      const messagesRef = collection(db, 'groups', groupId, 'messages');
+      await addDoc(messagesRef, {
+        _id: Date.now().toString(),
+        text: `${user.phoneNumber || 'A new member'} has joined the group.`,
+        createdAt: serverTimestamp(),
+        system: true,
+        user: {
+          _id: 'system',
+          name: 'System',
+        },
+      });
     } catch (error) {
       console.error('Error joining group:', error);
-      Alert.alert('Error', 'Failed to join group. Please try again.');
+      Alert.alert(
+        'Error',
+        'Failed to join group. Please try again. ' + 
+        (error instanceof Error ? error.message : 'Unknown error')
+      );
     }
   };
 
   const handleLeaveGroup = async () => {
-    if (!group || !user) return;
-
-    if (isLeader) {
-      Alert.alert(
-        'Cannot Leave Group',
-        'As the group leader, you cannot leave the group. You can cancel the group instead.'
-      );
+    if (!groupId || !user?.uid || !group) {
+      Alert.alert('Error', 'Unable to leave group - missing data');
       return;
     }
 
-    Alert.alert(
-      'Leave Group',
-      'Are you sure you want to leave this group?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Leave',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const groupRef = doc(db, 'groups', groupId);
-              const updatedMembers = { ...group.members };
-              delete updatedMembers[user.uid];
-              await updateDoc(groupRef, {
-                members: updatedMembers,
-                memberCount: group.memberCount - 1,
-                lastUpdated: serverTimestamp(),
-              });
-              navigation.goBack();
-            } catch (error) {
-              console.error('Error leaving group:', error);
-              Alert.alert('Error', 'Failed to leave group. Please try again.');
-            }
-          },
+    if (!group.members[user.uid]) {
+      Alert.alert('Error', 'You are not a member of this group');
+      return;
+    }
+
+    try {
+      const groupRef = doc(db, 'groups', groupId);
+      
+      // Update group document
+      await updateDoc(groupRef, {
+        [`members.${user.uid}`]: false,
+        memberCount: increment(-1)
+      });
+
+      // Add system message
+      await addDoc(collection(db, 'groups', groupId, 'messages'), {
+        _id: Date.now().toString(),
+        text: `${user.displayName || user.phoneNumber || 'A member'} has left the group.`,
+        createdAt: serverTimestamp(),
+        system: true,
+        user: {
+          _id: 'system',
+          name: 'System',
         },
-      ]
-    );
+      });
+
+      navigation.goBack();
+    } catch (error) {
+      console.error('Error leaving group:', error);
+      Alert.alert('Error', 'Failed to leave group. Please try again.');
+    }
   };
 
-  const handleCloseGroup = async () => {
-    if (!user || !group) return;
-
-    // Check if user is the group leader
-    if (group.createdBy !== user.uid) {
-      Alert.alert('Error', 'Only the group leader can close the group');
+  const handleLeaderLeaveGroup = () => {
+    console.log('handleLeaderLeaveGroup called');
+    if (!user || !group) {
+      console.log('Missing user or group:', { user: !!user, group: !!group });
       return;
     }
-
-    // Confirm with the user
-    Alert.alert(
-      'Close Group',
-      'This will permanently delete all group data including chats and media. This action cannot be undone.',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'Close Group',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              setLoading(true);
-
-              // Get all messages in the group
-              const messagesRef = collection(db, 'groups', group.id, 'messages');
-              const messagesSnapshot = await getDocs(messagesRef);
-
-              // Start a batch write
-              const batch = writeBatch(db);
-
-              // Delete all messages
-              messagesSnapshot.docs.forEach((doc) => {
-                batch.delete(doc.ref);
-              });
-
-              // Update group status to closed and record closing time
-              const groupRef = doc(db, 'groups', group.id);
-              batch.update(groupRef, {
-                status: 'completed',
-                closedAt: serverTimestamp(),
-                closedBy: user.uid,
-              });
-
-              // Send a final system message
-              const finalMessageRef = doc(collection(db, 'groups', group.id, 'messages'));
-              batch.set(finalMessageRef, {
-                _id: finalMessageRef.id,
-                text: 'Group has been closed by the leader',
-                createdAt: serverTimestamp(),
-                system: true,
-                user: {
-                  _id: 'system',
-                  name: 'System',
-                },
-              });
-
-              // Commit the batch
-              await batch.commit();
-
-              // Navigate back to home screen
-              navigation.replace('Home');
-            } catch (error: any) {
-              console.error('Error closing group:', error);
-              Alert.alert('Error', 'Failed to close group. Please try again.');
-            } finally {
-              setLoading(false);
-            }
-          },
-        },
-      ]
-    );
+    console.log('Showing leave confirmation dialog');
+    setShowLeaveDialog(true);
   };
 
   const handleStartOrder = async () => {
@@ -736,47 +718,16 @@ export default function GroupDetailsScreen({
             </Button>
             <Button
               mode="outlined"
-              onPress={handleCloseGroup}
-              style={[styles.actionButton, styles.closeGroupButton]}
-              textColor={colors.warning}
+              onPress={handleLeaderLeaveGroup}
+              style={[styles.actionButton, styles.leaveGroupButton]}
+              textColor={colors.error}
             >
-              Close Group
+              Leave Group
             </Button>
           </View>
         )}
       </View>
     </Card>
-  );
-
-  const renderGroupChat = () => (
-    <View style={styles.chatSection}>
-      <GiftedChat
-        messages={messages}
-        onSend={messages => onSend(messages)}
-        user={{ _id: user?.uid || '', name: user?.displayName || '' }}
-        renderBubble={renderBubble}
-        renderSend={renderSend}
-        alwaysShowSend
-        minInputToolbarHeight={60}
-        maxComposerHeight={100}
-        renderAvatar={null}
-        renderTime={(props) => (
-          <View style={styles.messageTime}>
-            <Text style={styles.timeText}>
-              {new Date(props.currentMessage?.createdAt || Date.now()).toLocaleTimeString([], { 
-                hour: '2-digit', 
-                minute: '2-digit' 
-              })}
-            </Text>
-          </View>
-        )}
-        listViewProps={{
-          style: styles.chatList,
-          contentContainerStyle: styles.chatListContent,
-          showsVerticalScrollIndicator: false,
-        }}
-      />
-    </View>
   );
 
   const renderGroupActions = () => (
@@ -829,6 +780,17 @@ export default function GroupDetailsScreen({
     </View>
   );
 
+  useEffect(() => {
+    if (group && user) {
+      console.log('Debug - Render conditions:', {
+        isOpen: group.status === 'open',
+        isMember: group.members[user.uid],
+        isLeader,
+        user: user.uid
+      });
+    }
+  }, [group, user, isLeader]);
+
   if (loading) {
     return (
       <View style={styles.centered}>
@@ -848,6 +810,7 @@ export default function GroupDetailsScreen({
 
   return (
     <View style={styles.container}>
+      {/* Header Section */}
       <View style={styles.header}>
         <LinearGradient
           colors={[colors.primary, colors.primaryDark]}
@@ -855,11 +818,6 @@ export default function GroupDetailsScreen({
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
         >
-          <View style={styles.headerPattern}>
-            <View style={[styles.patternCircle, styles.circle1]} />
-            <View style={[styles.patternCircle, styles.circle2]} />
-            <View style={[styles.patternCircle, styles.circle3]} />
-          </View>
           <View style={styles.headerContent}>
             <Text variant="headlineMedium" style={styles.groupName}>
               {group.name}
@@ -867,19 +825,13 @@ export default function GroupDetailsScreen({
             <View style={styles.headerStats}>
               <View style={styles.statItem}>
                 <Text style={styles.statValue}>
-                  <AnimatedNumber 
-                    value={group.memberCount} 
-                    formatter={(val) => `${val}/${MAX_GROUP_MEMBERS}`}
-                  />
+                  {`${group.memberCount}/${MAX_GROUP_MEMBERS}`}
                 </Text>
                 <Text style={styles.statLabel}>Members</Text>
               </View>
               <View style={styles.statItem}>
                 <Text style={styles.statValue}>
-                  <AnimatedNumber 
-                    value={group.targetAmount} 
-                    formatter={(val) => `₹${val}`}
-                  />
+                  {`₹${group.targetAmount}`}
                 </Text>
                 <Text style={styles.statLabel}>Target</Text>
               </View>
@@ -888,94 +840,185 @@ export default function GroupDetailsScreen({
         </LinearGradient>
       </View>
 
-      <View style={styles.content}>
-        {renderGroupInfo()}
-        
-        <View style={styles.tabContainer}>
-          <TouchableOpacity 
-            style={[styles.tab, sectionOrder === 'chatFirst' && styles.activeTab]}
-            onPress={() => setSectionOrder('chatFirst')}
-          >
-            <MaterialCommunityIcons 
-              name="message-text" 
-              size={24} 
-              color={sectionOrder === 'chatFirst' ? colors.primary : colors.text} 
-            />
-            <Text style={[styles.tabText, sectionOrder === 'chatFirst' && styles.activeTabText]}>
-              Chat
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.tab, sectionOrder === 'actionsFirst' && styles.activeTab]}
-            onPress={() => setSectionOrder('actionsFirst')}
-          >
-            <MaterialCommunityIcons 
-              name="format-list-bulleted" 
-              size={24} 
-              color={sectionOrder === 'actionsFirst' ? colors.primary : colors.text} 
-            />
-            <Text style={[styles.tabText, sectionOrder === 'actionsFirst' && styles.activeTabText]}>
-              Actions
-            </Text>
-          </TouchableOpacity>
+      {/* Main Content */}
+      <View style={styles.mainContainer}>
+        {/* Group Info & Actions */}
+        <View style={styles.infoSection}>
+          <View style={styles.infoCard}>
+            <View style={styles.cardHeader}>
+              <StatusBadge status={group.status} />
+              {isLeader && (
+                <MaterialCommunityIcons 
+                  name="crown" 
+                  size={24} 
+                  color={colors.primary} 
+                />
+              )}
+            </View>
+            <Text style={styles.description}>{group.description}</Text>
+            
+            <View style={styles.actionButtons}>
+              {group.status === 'open' && !group.members[user!.uid] && (
+                <Button
+                  mode="contained"
+                  onPress={handleJoinGroup}
+                  style={styles.actionButton}
+                >
+                  Join Group
+                </Button>
+              )}
+              {group.members[user!.uid] && !isLeader && (
+                <Button
+                  mode="outlined"
+                  onPress={handleLeaveGroup}
+                  style={styles.actionButton}
+                  textColor={colors.error}
+                >
+                  Leave Group
+                </Button>
+              )}
+              {isLeader && group.status === 'open' && (
+                <View style={styles.leaderActions}>
+                  <Button
+                    mode="contained"
+                    onPress={handleStartOrder}
+                    style={[styles.actionButton, styles.startOrderButton]}
+                  >
+                    Start Order
+                  </Button>
+                  <Button
+                    mode="outlined"
+                    onPress={handleLeaderLeaveGroup}
+                    style={[styles.actionButton, styles.leaveGroupButton]}
+                    textColor={colors.error}
+                  >
+                    Leave Group
+                  </Button>
+                </View>
+              )}
+            </View>
+          </View>
         </View>
 
-        <View style={styles.sectionContainer}>
-          {sectionOrder === 'chatFirst' ? renderGroupChat() : renderGroupActions()}
+        {/* Chat Section */}
+        <View style={styles.chatSection}>
+          <View style={styles.chatHeader}>
+            <Text style={styles.chatTitle}>Group Chat</Text>
+          </View>
+          <GiftedChat
+            messages={messages}
+            onSend={messages => onSend(messages)}
+            user={{ _id: user?.uid || '', name: user?.displayName || '' }}
+            renderBubble={renderBubble}
+            renderSend={renderSend}
+            alwaysShowSend
+            minInputToolbarHeight={60}
+            maxComposerHeight={100}
+            renderAvatar={null}
+            renderTime={(props) => (
+              <View style={styles.messageTime}>
+                <Text style={styles.timeText}>
+                  {new Date(props.currentMessage?.createdAt || Date.now()).toLocaleTimeString([], { 
+                    hour: '2-digit', 
+                    minute: '2-digit' 
+                  })}
+                </Text>
+              </View>
+            )}
+            listViewProps={{
+              style: styles.chatList,
+              contentContainerStyle: styles.chatListContent,
+              showsVerticalScrollIndicator: false,
+            }}
+          />
         </View>
       </View>
 
       <Portal>
         {renderOrderModal()}
         <Modal
-          visible={showMembersModal}
-          onDismiss={() => setShowMembersModal(false)}
+          visible={showLeaveDialog}
+          onDismiss={() => setShowLeaveDialog(false)}
           contentContainerStyle={styles.modal}
         >
           <View style={styles.modalHeader}>
-            <Text variant="headlineSmall" style={styles.modalTitle}>
-              Group Members
-            </Text>
-            <TouchableOpacity 
-              onPress={() => setShowMembersModal(false)}
-              style={styles.closeButton}
-            >
-              <MaterialCommunityIcons 
-                name="close" 
-                size={24} 
-                color={colors.text} 
-              />
-            </TouchableOpacity>
+            <Text variant="headlineSmall" style={styles.modalTitle}>Leave Group</Text>
           </View>
-          {memberLoading ? (
-            <ActivityIndicator size="small" color={colors.primary} />
-          ) : (
-            <ScrollView style={styles.membersList}>
-              {members.map((member) => (
-                <List.Item
-                  key={member.id}
-                  title={member.name || 'Unnamed User'}
-                  description={member.phoneNumber}
-                  left={props => (
-                    <View style={styles.memberListAvatar}>
-                      <Text style={styles.avatarText}>
-                        {member.name?.[0] || member.phoneNumber?.[0] || '?'}
-                      </Text>
-                    </View>
-                  )}
-                  right={props => 
-                    member.id === group.createdBy && 
-                    <MaterialCommunityIcons 
-                      name="crown" 
-                      size={24} 
-                      color={colors.primary} 
-                    />
+          <View style={styles.modalContent}>
+            <Text style={styles.modalText}>
+              Are you sure you want to leave this group? Leadership will be transferred to another member.
+            </Text>
+            <View style={styles.modalButtons}>
+              <Button
+                mode="outlined"
+                onPress={() => {
+                  console.log('Leave cancelled');
+                  setShowLeaveDialog(false);
+                }}
+                style={styles.modalButton}
+              >
+                Cancel
+              </Button>
+              <Button
+                mode="contained"
+                onPress={async () => {
+                  if (!user || !group) {
+                    console.log('Missing user or group:', { user: !!user, group: !!group });
+                    Alert.alert('Error', 'Unable to leave group. Please try again later.');
+                    return;
                   }
-                  style={styles.memberListItem}
-                />
-              ))}
-            </ScrollView>
-          )}
+
+                  try {
+                    console.log('Leader confirmed leaving group');
+                    setLoading(true);
+                    setShowLeaveDialog(false);
+                    
+                    const groupRef = doc(db, 'groups', groupId);
+                    const updatedMembers = { ...group.members };
+                    delete updatedMembers[user.uid];
+                    const remainingMembers = Object.keys(updatedMembers);
+                    console.log('Remaining members:', remainingMembers);
+
+                    if (remainingMembers.length === 0) {
+                      console.log('No members left, deleting group');
+                      await deleteDoc(groupRef);
+                    } else {
+                      console.log('Transferring leadership to:', remainingMembers[0]);
+                      await updateDoc(groupRef, {
+                        members: updatedMembers,
+                        memberCount: remainingMembers.length,
+                        createdBy: remainingMembers[0],
+                        lastUpdated: serverTimestamp(),
+                      });
+
+                      const messagesRef = collection(db, 'groups', groupId, 'messages');
+                      await addDoc(messagesRef, {
+                        _id: Date.now().toString(),
+                        text: `Group leadership has been transferred to a new member as the previous leader left.`,
+                        createdAt: serverTimestamp(),
+                        system: true,
+                        user: {
+                          _id: 'system',
+                          name: 'System',
+                        },
+                      });
+                    }
+                    console.log('Successfully processed leader leaving');
+                    navigation.goBack();
+                  } catch (error) {
+                    console.error('Error in leader leave process:', error);
+                    Alert.alert('Error', 'Failed to leave group. Please try again.');
+                  } finally {
+                    setLoading(false);
+                  }
+                }}
+                style={[styles.modalButton, styles.leaveButton]}
+                textColor={colors.background}
+              >
+                Leave Group
+              </Button>
+            </View>
+          </View>
         </Modal>
       </Portal>
     </View>
@@ -988,122 +1031,68 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   header: {
-    height: 180,
-    overflow: 'hidden',
+    height: 140,
     backgroundColor: colors.primary,
   },
   headerGradient: {
     flex: 1,
-    position: 'relative',
-    backgroundColor: 'transparent',
-  },
-  headerPattern: {
-    ...StyleSheet.absoluteFillObject,
-    opacity: 0.15,
-  },
-  patternCircle: {
-    position: 'absolute',
-    backgroundColor: colors.background,
-    borderRadius: 9999,
-  },
-  circle1: {
-    width: 200,
-    height: 200,
-    top: -100,
-    right: -50,
-    opacity: 0.15,
-  },
-  circle2: {
-    width: 150,
-    height: 150,
-    top: 50,
-    right: 50,
-    opacity: 0.1,
-  },
-  circle3: {
-    width: 100,
-    height: 100,
-    top: -20,
-    left: 30,
-    opacity: 0.12,
   },
   headerContent: {
     padding: spacing.lg,
-    paddingTop: spacing.xl,
   },
   groupName: {
     color: colors.background,
     fontWeight: 'bold',
     fontSize: 28,
     marginBottom: spacing.sm,
-    textShadowColor: 'rgba(0,0,0,0.2)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
   },
   headerStats: {
     flexDirection: 'row',
     justifyContent: 'space-around',
     marginTop: spacing.md,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 12,
-    padding: spacing.sm,
   },
   statItem: {
     alignItems: 'center',
-    paddingHorizontal: spacing.md,
   },
   statValue: {
     color: colors.background,
     fontSize: 24,
     fontWeight: 'bold',
-    textShadowColor: 'rgba(0,0,0,0.2)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
   },
   statLabel: {
     color: colors.background,
     opacity: 0.9,
     fontSize: 14,
     marginTop: spacing.xs,
-    fontWeight: '500',
   },
-  content: {
+  mainContainer: {
     flex: 1,
     backgroundColor: colors.background,
-    marginTop: -20,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingTop: spacing.md,
   },
-  groupInfoCard: {
-    marginHorizontal: spacing.md,
-    marginBottom: spacing.md,
+  infoSection: {
+    padding: spacing.md,
+    backgroundColor: colors.background,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.surfaceVariant,
+  },
+  infoCard: {
     borderRadius: 16,
     backgroundColor: colors.surface,
-    ...elevation.medium,
+    padding: spacing.md,
+    ...elevation.small,
   },
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: spacing.md,
-    padding: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.surfaceVariant,
   },
   description: {
     fontSize: 16,
     color: colors.text,
     marginBottom: spacing.md,
-    padding: spacing.md,
-    lineHeight: 24,
-  },
-  divider: {
-    marginVertical: spacing.sm,
-    backgroundColor: colors.surfaceVariant,
   },
   actionButtons: {
-    padding: spacing.md,
     gap: spacing.sm,
   },
   actionButton: {
@@ -1119,59 +1108,32 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.primary,
   },
-  closeGroupButton: {
+  leaveGroupButton: {
     flex: 1,
     borderColor: colors.error,
-  },
-  tabContainer: {
-    flexDirection: 'row',
-    backgroundColor: colors.surface,
-    borderRadius: 12,
-    margin: spacing.md,
-    padding: spacing.xs,
-    ...elevation.small,
-  },
-  tab: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: spacing.sm,
-    gap: spacing.xs,
-    borderRadius: 8,
-  },
-  activeTab: {
-    backgroundColor: `${colors.primary}15`,
-  },
-  tabText: {
-    fontSize: 16,
-    color: colors.text,
-    marginLeft: spacing.xs,
-    fontWeight: '500',
-  },
-  activeTabText: {
-    color: colors.primary,
-    fontWeight: '600',
-  },
-  sectionContainer: {
-    flex: 1,
-    backgroundColor: colors.background,
   },
   chatSection: {
     flex: 1,
     backgroundColor: colors.background,
-    borderRadius: 16,
-    margin: spacing.md,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: colors.surfaceVariant,
-    ...elevation.medium,
+  },
+  chatHeader: {
+    padding: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.surfaceVariant,
+    backgroundColor: colors.surface,
+  },
+  chatTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: colors.primary,
   },
   chatList: {
+    flex: 1,
     backgroundColor: colors.background,
   },
   chatListContent: {
     padding: spacing.md,
+    paddingBottom: spacing.xl,
   },
   messageTime: {
     marginBottom: spacing.xs,
@@ -1181,81 +1143,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: colors.text,
     opacity: 0.7,
-  },
-  actionsSection: {
-    flex: 1,
-    padding: spacing.md,
-  },
-  actionCard: {
-    borderRadius: 16,
-    backgroundColor: colors.surface,
-    ...elevation.medium,
-    overflow: 'hidden',
-  },
-  actionSubheader: {
-    color: colors.primary,
-    fontSize: 18,
-    fontWeight: '600',
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.sm,
-    backgroundColor: colors.surface,
-  },
-  actionItem: {
-    paddingVertical: spacing.sm,
-    backgroundColor: colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.surfaceVariant,
-  },
-  modal: {
-    backgroundColor: colors.surface,
-    margin: spacing.lg,
-    borderRadius: 20,
-    maxHeight: '80%',
-    ...elevation.medium,
-    overflow: 'hidden',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: spacing.lg,
-    backgroundColor: colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.surfaceVariant,
-  },
-  modalTitle: {
-    color: colors.text,
-    fontWeight: 'bold',
-    fontSize: 20,
-  },
-  closeButton: {
-    padding: spacing.xs,
-    borderRadius: 20,
-    backgroundColor: colors.surfaceVariant,
-  },
-  membersList: {
-    padding: spacing.md,
-  },
-  memberListItem: {
-    paddingVertical: spacing.sm,
-    backgroundColor: colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.surfaceVariant,
-  },
-  memberListAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    ...elevation.small,
-  },
-  avatarText: {
-    color: colors.background,
-    fontSize: 16,
-    fontWeight: 'bold',
   },
   sendButton: {
     marginRight: spacing.md,
@@ -1268,6 +1155,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     ...elevation.small,
   },
+  modal: {
+    backgroundColor: colors.surface,
+    margin: spacing.lg,
+    borderRadius: 20,
+    maxHeight: '80%',
+    ...elevation.medium,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: spacing.lg,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.surfaceVariant,
+  },
+  modalTitle: {
+    color: colors.text,
+    fontWeight: 'bold',
+    fontSize: 20,
+  },
+  orderContent: {
+    padding: spacing.md,
+  },
   centered: {
     flex: 1,
     justifyContent: 'center',
@@ -1278,21 +1188,6 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
     color: colors.text,
     fontSize: 16,
-    fontWeight: '500',
-  },
-  orderContent: {
-    padding: spacing.md,
-  },
-  uploadSection: {
-    marginTop: spacing.md,
-    padding: spacing.md,
-    backgroundColor: colors.surface,
-    borderRadius: 12,
-    ...elevation.small,
-  },
-  uploadButton: {
-    marginTop: spacing.sm,
-    borderColor: colors.primary,
   },
   sectionHeader: {
     backgroundColor: colors.surface,
@@ -1361,7 +1256,68 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: 16,
   },
-  scrollView: {
+  actionsSection: {
+    padding: spacing.md,
+  },
+  actionCard: {
+    borderRadius: 16,
+    backgroundColor: colors.surface,
+    ...elevation.medium,
+  },
+  actionSubheader: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: colors.primary,
+    padding: spacing.md,
+  },
+  closeButton: {
+    padding: spacing.xs,
+    borderRadius: 20,
+    backgroundColor: colors.surfaceVariant,
+  },
+  uploadSection: {
+    marginTop: spacing.md,
+    padding: spacing.md,
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    ...elevation.small,
+  },
+  uploadButton: {
+    marginTop: spacing.sm,
+    borderColor: colors.primary,
+  },
+  groupInfoCard: {
+    marginHorizontal: spacing.md,
+    marginBottom: spacing.md,
+    borderRadius: 16,
+    backgroundColor: colors.surface,
+    ...elevation.medium,
+  },
+  divider: {
+    backgroundColor: colors.surfaceVariant,
+    marginVertical: spacing.sm,
+  },
+  actionItem: {
+    paddingVertical: spacing.sm,
+    borderRadius: 8,
+  },
+  modalContent: {
     padding: spacing.lg,
+  },
+  modalText: {
+    fontSize: 16,
+    color: colors.text,
+    marginBottom: spacing.xl,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: spacing.md,
+  },
+  modalButton: {
+    minWidth: 100,
+  },
+  leaveButton: {
+    backgroundColor: colors.error,
   },
 }); 
